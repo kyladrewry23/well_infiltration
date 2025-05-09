@@ -19,4 +19,3 @@ To run the code successfully:
 3. **Place all raster `.tif` files into that folder**, and ensure it is located in the root directory of this repository (i.e., the same level as your `.Rproj` file).
 
 If you have any issues accessing the rasters or running the code, feel free to reach out.
-
