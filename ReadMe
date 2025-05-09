@@ -1,1 +1,6 @@
+This repository contains code and files realted to a recent experimental study evaluating how different wellhead designs (e.g., vented vs. sealed caps) affect the potential for floodwater infiltration into private wells. 
 
+Using Hurricane Helene as a case study, we assessed how infrastructure contributes to short-term contamination risk and aquifer recharge, with implications for resilient groundwater management. 
+This project integrates laboratory experiments simulating floodwater inundation across common well covering types with modeled flood extents and groundwater data from monitoring wells affected by Hurricane Helene in North Carolina. We estimate contributions to post-storm changes in hydraulic head from overtopped wells, showing that well infrastructure results in non-trivial risks to the larger aquifer.
+
+The work included is ongoing and the repository is designed to add versions of the code and share progress with collaborators. 
