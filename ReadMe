@@ -5,12 +5,17 @@ This project integrates laboratory experiments simulating floodwater inundation 
 
 The work included is ongoing and the repository is designed to add versions of the code and share progress with collaborators. 
 
-🔗 Raster Data (Not Included)
-This repository references several large raster datasets (e.g., .tif flood duration maps) that exceed GitHub’s file size limits and are not included here.
+### 🔗 Raster Data (Not Included)
+
+This repository references several large raster datasets (e.g., `.tif` flood duration maps) that exceed GitHub’s file size limits and are therefore **not included** here.
 
 To run the code successfully:
 
-Download the raster files from the following shared folder:
-📁 Google Drive – Flood Raster Data
+1. **Download the raster files** from the following shared folder (you may need to request access if you are outside our group):
+   📁 [OneDrive – Flood Duration Maps](https://northeastern-my.sharepoint.com/:f:/g/personal/jamshidi_re_northeastern_edu/EndMZRtBxAtNoGRKbBndh8AB2zKAG0mR2bKo4wSC7Flbgw?e=QlHwg2)
 
-Place them inside a folder named: helene_flood_duration/
+2. **Create a folder named**: helene_flood_duration/
+
+3. **Place all raster `.tif` files into that folder**, and ensure it is located in the root directory of this repository (i.e., the same level as your `.Rproj` file).
+
+If you have any issues accessing the rasters or running the code, feel free to reach out.
