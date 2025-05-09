@@ -12,7 +12,8 @@ This repository references several large raster datasets (e.g., `.tif` flood dur
 To run the code successfully:
 
 1. **Download the raster files** from the following shared folder (you may need to request access if you are outside our group):
-   📁 [OneDrive – Flood Duration Maps](https://northeastern-my.sharepoint.com/:f:/g/personal/jamshidi_re_northeastern_edu/EndMZRtBxAtNoGRKbBndh8AB2zKAG0mR2bKo4wSC7Flbgw?e=QlHwg2)
+ 📁 [OneDrive – Flood Duration Maps](https://northeastern-my.sharepoint.com/:f:/g/personal/jamshidi_re_northeastern_edu/EndMZRtBxAtNoGRKbBndh8AB2zKAG0mR2bKo4wSC7Flbgw?e=QlHwg2)  
+   *(If you are outside our group, you may need to request access.)* 
 
 2. **Create a folder named**: helene_flood_duration/
 
