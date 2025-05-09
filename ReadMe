@@ -11,8 +11,8 @@ This repository references several large raster datasets (e.g., `.tif` flood dur
 
 To run the code successfully:
 
-1. **Download the raster files** from the following shared folder (you may need to request access if you are outside our group):
- 📁    📁 [Flood Duration Maps – Download](https://bit.ly/flood_duration_maps)
+1. **Download the raster files** from the following shared folder (you may need to request access if you are outside our group).
+ 📁Flood Duration Maps – Download: https://bit.ly/flood_duration_maps
 
 
 2. **Create a folder named**: helene_flood_duration/
