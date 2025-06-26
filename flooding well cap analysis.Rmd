@@ -1,0 +1,3145 @@
+---
+title: "Well cap flooding"
+author: "Kyla Drewry"
+date: "2023-12-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(changepoint)
+library(dpseg)
+library(dplyr)
+library(stats)
+library(terra)
+library(pracma)
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(sf)
+library(dataRetrieval)
+library(ggridges)
+library(purrr)
+```
+
+```{r}
+destination<-"C:\\Users\\drewry.k\\OneDrive - Northeastern University\\Documents\\Desktop\\Infiltration\\cleaned_results\\"
+sanitary1<-read_excel(file.path(destination,"sanitaryseal.xlsx"),sheet="trial 1") %>% na.omit()
+sanitary2<-read_excel(file.path(destination,"sanitaryseal.xlsx"),sheet="trial 2") %>% na.omit()
+sanitary3<-read_excel(file.path(destination,"sanitaryseal.xlsx"),sheet="trial 3")%>% na.omit()
+cap1<-read_excel(file.path(destination,"wellcap.xlsx"),sheet="trial 1")%>% na.omit()
+cap2<-read_excel(file.path(destination,"wellcap.xlsx"),sheet="trial 2")%>% na.omit()
+cap3<-read_excel(file.path(destination,"wellcap.xlsx"),sheet="trial 3")%>% na.omit()
+seal1<-read_excel(file.path(destination,"wellseal.xlsx"),sheet="trial 1")%>% na.omit()
+seal2<-read_excel(file.path(destination,"wellseal.xlsx"),sheet="trial 2")%>% na.omit()
+seal3<-read_excel(file.path(destination,"wellseal.xlsx"),sheet="trial 3")%>% na.omit()
+vented1<-read_excel(file.path(destination,"wellsealvented.xlsx"),sheet="trial 1")%>% na.omit()
+vented2<-read_excel(file.path(destination,"wellsealvented.xlsx"),sheet="trial 2")%>% na.omit()
+vented3<-read_excel(file.path(destination,"wellsealvented.xlsx"),sheet="trial 3")%>% na.omit()
+control<-read_excel(file.path(destination,"control.xlsx"))%>% na.omit()
+overnight<-read_excel(file.path(destination,"sanitary_overnight.xlsx")) %>% na.omit()
+overnight_seal<-read_excel(file.path(destination,"seal_overnight.xlsx")) %>% na.omit()
+```
+
+```{r}
+# Function to convert timestamp to minutes
+convert_to_minutes <- function(index_column) {
+  # Convert index to minutes (assuming each index increment represents 10 seconds)
+  minutes <- index_column * 10 / 60
+  return(minutes)
+}
+
+sanitary1$timestamp <- convert_to_minutes(sanitary1$index)
+sanitary2$timestamp <- convert_to_minutes(sanitary2$index)
+sanitary3$timestamp <- convert_to_minutes(sanitary3$index)
+
+cap1$timestamp <- convert_to_minutes(cap1$index)
+cap2$timestamp <- convert_to_minutes(cap2$index)
+cap3$timestamp <- convert_to_minutes(cap3$index)
+
+seal1$timestamp <- convert_to_minutes(seal1$index)
+seal2$timestamp <- convert_to_minutes(seal2$index)
+seal3$timestamp <- convert_to_minutes(seal3$index)
+
+vented1$timestamp <- convert_to_minutes(vented1$index)
+vented2$timestamp <- convert_to_minutes(vented2$index)
+vented3$timestamp <- convert_to_minutes(vented3$index)
+
+control$timestamp <- convert_to_minutes(control$index)
+overnight$timestamp<-convert_to_minutes(overnight$index)
+overnight_seal$timestamp<-convert_to_minutes(overnight_seal$index)
+```
+
+```{r}
+raw_plot<-ggplot() +
+  geom_line(aes(x = sanitary1$timestamp, y = sanitary1$waterheight, color = "Sanitary 1"), size = 1) +
+  geom_line(aes(x = sanitary2$timestamp, y = sanitary2$waterheight, color = "Sanitary 2"), size = 1) +
+  geom_line(aes(x = sanitary3$timestamp, y = sanitary3$waterheight, color = "Sanitary 3"), size = 1) +
+  
+  geom_line(aes(x = seal1$timestamp, y = seal1$waterheight, color = "Seal 1"), size = 1) +
+  geom_line(aes(x = seal2$timestamp, y = seal2$waterheight, color = "Seal 2"), size = 1) +
+  geom_line(aes(x = seal3$timestamp, y = seal3$waterheight, color = "Seal 3"), size = 1) +
+  
+  geom_line(aes(x = vented1$timestamp, y = vented1$waterheight, color = "Vented 1"), size = 1) +
+  geom_line(aes(x = vented2$timestamp, y = vented2$waterheight, color = "Vented 2"), size = 1) +
+  geom_line(aes(x = vented3$timestamp, y = vented3$waterheight, color = "Vented 3"), size = 1) +
+  
+  geom_line(aes(x = cap1$timestamp, y = cap1$waterheight, color = "Cap 1"), size = 1) +
+  geom_line(aes(x = cap2$timestamp, y = cap2$waterheight, color = "Cap 2"), size = 1) +
+  geom_line(aes(x = cap3$timestamp, y = cap3$waterheight, color = "Cap 3"), size = 1) +
+
+  labs(title = "Water Height vs Time",
+       x = "Time (minutes)",
+       y = "Water Height (inches)") +
+  #xlim(c(0, 2.5)) +
+  #xlim(c(0,2.5))+
+  #xlim(c(0, 80)) +
+  #ylim(c(11, 28)) +
+  theme_minimal() +
+  scale_color_manual(values = c("Sanitary 1" = "lightblue", "Sanitary 2" = "skyblue1", "Sanitary 3" = "steelblue1", 
+                                "Seal 1" = "palegreen", "Seal 2" = "seagreen3", "Seal 3" = "green4", 
+                                "Vented 1" = "plum", "Vented 2" = "orchid", "Vented 3" = "darkorchid", 
+                                "Cap 1" = "coral2", "Cap 2" = "darkorange2", "Cap 3" = "chocolate3"),
+                     name = "Legend")
+
+raw_plot
+```
+
+```{r}
+raw_plot <- ggplot() +
+  geom_line(aes(x = sanitary1$timestamp, y = sanitary1$waterheight - 16, color = "Sanitary 1"), size = 1) +
+  geom_line(aes(x = sanitary2$timestamp, y = sanitary2$waterheight - 16, color = "Sanitary 2"), size = 1) +
+  geom_line(aes(x = sanitary3$timestamp, y = sanitary3$waterheight - 16, color = "Sanitary 3"), size = 1) +
+  
+  geom_line(aes(x = seal1$timestamp, y = seal1$waterheight - 16, color = "Seal 1"), size = 1) +
+  geom_line(aes(x = seal2$timestamp, y = seal2$waterheight - 16, color = "Seal 2"), size = 1) +
+  geom_line(aes(x = seal3$timestamp, y = seal3$waterheight - 16, color = "Seal 3"), size = 1) +
+  
+  geom_line(aes(x = vented1$timestamp, y = vented1$waterheight - 16, color = "Vented 1"), size = 1) +
+  geom_line(aes(x = vented2$timestamp, y = vented2$waterheight - 16, color = "Vented 2"), size = 1) +
+  geom_line(aes(x = vented3$timestamp, y = vented3$waterheight - 16, color = "Vented 3"), size = 1) +
+  
+  geom_line(aes(x = cap1$timestamp, y = cap1$waterheight - 16, color = "Cap 1"), size = 1) +
+  geom_line(aes(x = cap2$timestamp, y = cap2$waterheight - 16, color = "Cap 2"), size = 1) +
+  geom_line(aes(x = cap3$timestamp, y = cap3$waterheight - 16, color = "Cap 3"), size = 1) +
+
+  labs(title = "Water Height vs Time",
+       x = "Time (minutes)",
+       y = "Water Height (inches above well covering)") +
+
+  scale_x_log10(expand = c(0, 0)) +  # Logarithmic scale, ensuring it starts at 0
+  scale_y_continuous(limits = c(0, 12), expand = c(0, 0)) +  # Y-axis from 0 to 12 inches
+  scale_color_manual(values = c("Sanitary 1" = "lightblue", "Sanitary 2" = "skyblue1", "Sanitary 3" = "steelblue1", 
+                                "Seal 1" = "palegreen", "Seal 2" = "seagreen3", "Seal 3" = "green4", 
+                                "Vented 1" = "plum", "Vented 2" = "orchid", "Vented 3" = "darkorchid", 
+                                "Cap 1" = "coral2", "Cap 2" = "darkorange2", "Cap 3" = "chocolate3"),
+                     name = "Legend") +
+
+  theme_minimal(base_size = 14) + 
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"), 
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")  
+  )
+
+raw_plot
+
+
+```
+
+
+##Function to remove noise and calculate Q
+```{r}
+time_step_and_Q <- function(df, num, h_offset = 0) {
+  df$time <- as.POSIXct(df$time)
+
+  # Apply the offset during height conversion
+  df <- df %>%
+    mutate(h_m = ((waterheight - min(waterheight, na.rm = TRUE)) * 0.0254) + h_offset)
+
+  first_zero_h <- ifelse(any(df$h_m == 0, na.rm = TRUE), which(df$h_m == 0)[1], nrow(df) + 1)
+  df <- df %>% slice(1:(first_zero_h - 1))
+
+  df <- df %>%
+    mutate(deltah = lag(h_m) - h_m) %>%
+    mutate(
+      Q_m3s = (deltah * pi * 0.2857^2) / 10,
+      Q_Lmin = Q_m3s * 1000 * 60,
+      vmax = sqrt(2 * 9.81 * h_m)
+    ) %>%
+    mutate(group_id = ceiling(row_number() / num)) %>%
+    group_by(group_id) %>%
+    summarise(
+      time = mean(time, na.rm = TRUE),
+      waterheight = mean(waterheight, na.rm = TRUE),
+      h_m = mean(h_m, na.rm = TRUE),
+      deltah = mean(deltah, na.rm = TRUE),
+      Q_Lmin = mean(Q_Lmin, na.rm = TRUE),
+      vmax = mean(vmax, na.rm = TRUE),
+      .groups = 'drop'
+    )
+
+  return(df)
+}
+
+
+```
+
+##Apply delta h function
+```{r}
+sanitary1_processed <- time_step_and_Q(sanitary1, 90)
+sanitary2_processed <- time_step_and_Q(sanitary2, 90)
+sanitary3_processed <- time_step_and_Q(sanitary3, 90)
+
+cap1_processed <- time_step_and_Q(cap1, 1)
+cap2_processed <- time_step_and_Q(cap2, 1)
+cap3_processed <- time_step_and_Q(cap3, 1)
+
+seal1_processed <- time_step_and_Q(seal1, 6)
+seal2_processed <- time_step_and_Q(seal2, 6)
+seal3_processed <- time_step_and_Q(seal3, 6)
+
+vented1_processed <- time_step_and_Q(vented1, 12, h_offset = 0.038)
+vented2_processed <- time_step_and_Q(vented2, 12, h_offset = 0.038)
+vented3_processed <- time_step_and_Q(vented3, 12, h_offset = 0.038)
+
+```
+
+
+```{r}
+chop_data <- function(df, chop_height) {
+  df <- df %>%
+    mutate(h_m = (waterheight - min(waterheight, na.rm = TRUE)) *0.0254)
+  df <- df %>%
+    filter(h_m < chop_height)
+  
+  return(df)
+}
+
+sanitary1_chopped <- chop_data(sanitary1_processed, 0.25)
+sanitary2_chopped <- chop_data(sanitary2_processed, 0.25)
+sanitary3_chopped <- chop_data(sanitary3_processed, 0.25)
+
+cap1_chopped <- chop_data(cap1_processed, chop_height=0.25)
+cap2_chopped <- chop_data(cap2_processed, chop_height = 0.25)
+cap3_chopped <- chop_data(cap3_processed, chop_height = 0.25)
+
+seal1_chopped <- chop_data(seal1_processed, chop_height = 0.2)
+seal2_chopped <- chop_data(seal2_processed, chop_height = .25)
+seal3_chopped <- chop_data(seal3_processed, chop_height = .25)
+
+vented1_chopped <- chop_data(vented1_processed, chop_height = 0.25)
+vented2_chopped <- chop_data(vented2_processed, chop_height = 0.25)
+vented3_chopped <- chop_data(vented3_processed, chop_height = 0.25)
+```
+
+```{r}
+trial_timesteps <- tibble(
+  trial = c("Sanitary2", "Sanitary3", "Cap1", "Cap2", "Cap3",
+            "Seal1", "Seal2", "Seal3", "Vented1", "Vented2", "Vented3"),
+  timestep_sec = c(900, 900, 20, 20, 20, 60, 60, 60, 120, 120, 120)
+)
+add_time_from_timestep <- function(df, trial_name, timestep_df) {
+  step_sec <- timestep_df %>% filter(trial == trial_name) %>% pull(timestep_sec)
+  
+  df <- df %>%
+    arrange(desc(h_m)) %>%
+    mutate(time_min = ((row_number() - 1) * step_sec) / 60)
+  
+  return(df)
+}
+sanitary1_chopped <- add_time_from_timestep(sanitary1_chopped, "Sanitary2", trial_timesteps)
+sanitary2_chopped <- add_time_from_timestep(sanitary2_chopped, "Sanitary2", trial_timesteps)
+sanitary3_chopped <- add_time_from_timestep(sanitary3_chopped, "Sanitary3", trial_timesteps)
+
+cap1_chopped <- add_time_from_timestep(cap1_chopped, "Cap1", trial_timesteps)
+cap2_chopped <- add_time_from_timestep(cap2_chopped, "Cap2", trial_timesteps)
+cap3_chopped <- add_time_from_timestep(cap3_chopped, "Cap3", trial_timesteps)
+
+seal1_chopped <- add_time_from_timestep(seal1_chopped, "Seal1", trial_timesteps)
+seal2_chopped <- add_time_from_timestep(seal2_chopped, "Seal2", trial_timesteps)
+seal3_chopped <- add_time_from_timestep(seal3_chopped, "Seal3", trial_timesteps)
+
+vented1_chopped <- add_time_from_timestep(vented1_chopped, "Vented1", trial_timesteps)
+vented2_chopped <- add_time_from_timestep(vented2_chopped, "Vented2", trial_timesteps)
+vented3_chopped <- add_time_from_timestep(vented3_chopped, "Vented3", trial_timesteps)
+
+```
+
+
+
+
+```{r}
+raw_plot <- ggplot() +
+  geom_line(data = sanitary1_chopped, aes(x = time_min, y = h_m * 100, color = "Sanitary 1"), size = 1) +
+  geom_line(data = sanitary2_chopped, aes(x = time_min, y = h_m * 100, color = "Sanitary 2"), size = 1) +
+  geom_line(data = sanitary3_chopped, aes(x = time_min, y = h_m * 100, color = "Sanitary 3"), size = 1) +
+  
+  geom_line(data = seal1_chopped, aes(x = time_min, y = h_m * 100, color = "Seal 1"), size = 1) +
+  geom_line(data = seal2_chopped, aes(x = time_min, y = h_m * 100, color = "Seal 2"), size = 1) +
+  geom_line(data = seal3_chopped, aes(x = time_min, y = h_m * 100, color = "Seal 3"), size = 1) +
+  
+  geom_line(data = vented1_chopped, aes(x = time_min, y = h_m * 100, color = "Vented 1"), size = 1) +
+  geom_line(data = vented2_chopped, aes(x = time_min, y = h_m * 100, color = "Vented 2"), size = 1) +
+  geom_line(data = vented3_chopped, aes(x = time_min, y = h_m * 100, color = "Vented 3"), size = 1) +
+  
+  geom_line(data = cap1_chopped, aes(x = time_min, y = h_m * 100, color = "Cap 1"), size = 1) +
+  geom_line(data = cap2_chopped, aes(x = time_min, y = h_m * 100, color = "Cap 2"), size = 1) +
+  geom_line(data = cap3_chopped, aes(x = time_min, y = h_m * 100, color = "Cap 3"), size = 1) +
+  
+  labs(
+    title = "Water Height vs Time",
+    x = "Time (minutes)",
+    y = "Water Height (cm above well covering)"
+  ) +
+  scale_x_log10(expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 20), expand = c(0, 0)) +
+  scale_color_manual(values = c(
+    "Sanitary 1" = "darkorchid", "Sanitary 2" = "darkorchid", "Sanitary 3" = "darkorchid", 
+    "Seal 1" = "palegreen", "Seal 2" = "palegreen", "Seal 3" = "palegreen", 
+    "Vented 1" = "darkgreen", "Vented 2" = "darkgreen", "Vented 3" = "darkgreen", 
+    "Cap 1" = "plum", "Cap 2" = "plum", "Cap 3" = "plum"
+  ), name = "Legend") +
+  theme_minimal(base_size = 14) + 
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"), 
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")
+  )
+
+raw_plot
+
+```
+
+
+
+```{r}
+# Calculate the average flow rate (Q) for all data points in each dataset
+sanitary1_avg_Q <- sanitary1_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+sanitary2_avg_Q <- sanitary2_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+sanitary3_avg_Q <- sanitary3_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+cap1_avg_Q <- cap1_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+cap2_avg_Q <- cap2_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+cap3_avg_Q <- cap3_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+seal1_avg_Q <- seal1_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+seal2_avg_Q <- seal2_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+seal3_avg_Q <- seal3_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+vented1_avg_Q <- vented1_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+vented2_avg_Q <- vented2_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+vented3_avg_Q <- vented3_processed %>%
+  summarise(avg_Q = mean(Q_Lmin, na.rm = TRUE))
+
+```
+
+```{r}
+# Create a summary table
+avg_Q_summary <- tibble(
+  well_cap = c("Sanitary 1", "Sanitary 2", "Sanitary 3", "Cap 1", "Cap 2", "Cap 3",
+               "Seal 1", "Seal 2", "Seal 3", "Vented 1", "Vented 2", "Vented 3"),
+  avg_Q = c(
+    sanitary1_avg_Q$avg_Q, sanitary2_avg_Q$avg_Q, sanitary3_avg_Q$avg_Q,
+    cap1_avg_Q$avg_Q, cap2_avg_Q$avg_Q, cap3_avg_Q$avg_Q,
+    seal1_avg_Q$avg_Q, seal2_avg_Q$avg_Q, seal3_avg_Q$avg_Q,
+    vented1_avg_Q$avg_Q, vented2_avg_Q$avg_Q, vented3_avg_Q$avg_Q
+  )
+)
+
+avg_Q_summary <- avg_Q_summary %>%
+  mutate(cap_type = gsub(" [0-9]+", "", well_cap)) 
+
+print(avg_Q_summary)
+avg_by_type <- avg_Q_summary %>%
+  group_by(cap_type) %>%
+  summarise(
+    avg_Q_Lmin = mean(avg_Q),
+    sd_Q = sd(avg_Q),
+    n = n(),
+    se_Q = sd_Q / sqrt(n),
+    ci_95 = qt(0.975, df = n - 1) * se_Q,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    lower_CI = avg_Q_Lmin - ci_95,
+    upper_CI = avg_Q_Lmin + ci_95
+  )
+
+print(avg_by_type)
+
+```
+
+
+```{r}
+# Add trial labels for each dataset (Sanitary, Cap, Seal, Vented)
+sanitary1_chopped$trial <- "Sanitary1"
+sanitary2_chopped$trial <- "Sanitary2"
+sanitary3_chopped$trial <- "Sanitary3"
+cap1_chopped$trial <- "Cap1"
+cap2_chopped$trial <- "Cap2"
+cap3_chopped$trial <- "Cap3"
+seal1_chopped$trial <- "Seal1"
+seal2_chopped$trial <- "Seal2"
+seal3_chopped$trial <- "Seal3"
+vented1_chopped$trial <- "Vented1"
+vented2_chopped$trial <- "Vented2"
+vented3_chopped$trial <- "Vented3"
+
+
+
+sanitary1_chopped$cap_type <- "Sanitary"
+sanitary2_chopped$cap_type <- "Sanitary"
+sanitary3_chopped$cap_type <- "Sanitary"
+cap1_chopped$cap_type <- "Cap"
+cap2_chopped$cap_type <- "Cap"
+cap3_chopped$cap_type <- "Cap"
+seal1_chopped$cap_type <- "Seal"
+seal2_chopped$cap_type <- "Seal"
+seal3_chopped$cap_type <- "Seal"
+vented1_chopped$cap_type <- "Vented"
+vented2_chopped$cap_type <- "Vented"
+vented3_chopped$cap_type <- "Vented"
+
+
+# Combine all datasets into one
+all_data <- bind_rows(sanitary2_chopped, sanitary3_chopped, cap1_chopped, cap2_chopped, cap3_chopped, seal1_chopped, seal2_chopped, seal3_chopped, vented1_chopped, vented2_chopped, vented3_chopped)
+
+all_data <- all_data %>% filter(!is.na(Q_Lmin), !is.na(h_m)) %>% filter(Q_Lmin>0,h_m>0)
+
+avg_by_type <- filtered_data %>%
+  group_by(cap_type) %>%
+  summarise(
+    avg_Q_Lmin = mean(Q_Lmin),
+    sd_Q = sd(Q_Lmin),
+    n = n(),
+    se_Q = sd_Q / sqrt(n),
+    ci_95 = qt(0.975, df = n - 1) * se_Q,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    lower_CI = avg_Q_Lmin - ci_95,
+    upper_CI = avg_Q_Lmin + ci_95
+  )
+#write.csv(all_data,"all_data.csv")
+```
+
+
+```{r}
+ggplot(all_data, aes(x = h_m, y = Q_Lmin, color = cap_type)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "Flow Rate vs. Height for Each Cap Type",
+    x = "Height (ft)",
+    y = "Flow Rate (Q)",
+    color = "Cap Type"
+  ) +
+  theme_minimal()+
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color="black"),
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")  
+  )
+
+```
+
+```{r}
+# Define custom h_m cutoffs by cap_type
+cutoffs <- tibble(
+  cap_type = c("Cap", "Sanitary", "Seal", "Vented"),
+  h_cutoff = c(0.01, 0.01, 0.03, 0.03)  
+)
+
+# Join and filter based on cap_type-specific cutoff
+filtered_data <- all_data %>%
+  filter(Q_Lmin > 0.009) %>%
+  inner_join(cutoffs, by = "cap_type") %>%
+  filter(h_m > h_cutoff)
+
+# Fit models with custom cutoffs
+model_summaries <- filtered_data %>%
+  group_by(cap_type) %>%
+  do({
+    model <- lm(Q_Lmin ~ log(h_m), data = .)
+    tibble(
+      intercept = coef(model)[1],
+      slope = coef(model)[2],
+      r_squared = summary(model)$r.squared,
+      adj_r_squared = summary(model)$adj.r.squared
+    )
+  })
+
+print(model_summaries)
+```
+
+```{r}
+fitted_lines_raw <- filtered_data %>%
+  filter(Q_Lmin > 0.009, h_m > 0.01) %>%
+  group_by(cap_type) %>%
+  summarise(
+    intercept = coef(lm(Q_Lmin ~ log(h_m)))[1],
+    slope = coef(lm(Q_Lmin ~ log(h_m)))[2],
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    h_vals = list(seq(0.01, 0.25, by = 0.0005)),  
+    Q_vals = list(intercept + slope * log(h_vals))
+  ) %>%
+  unnest(cols = c(h_vals, Q_vals)) %>%
+  rename(h_m = h_vals, Q_Lmin = Q_vals)
+
+
+```
+
+```{r}
+ggplot() +
+  geom_point(data = filtered_data,
+             aes(x = h_m, y = Q_Lmin),
+             alpha = 0.5) +
+  geom_line(data = fitted_lines_raw,
+            aes(x = h_m, y = Q_Lmin),
+            size = 1.2) +
+  facet_wrap(~cap_type, scales = "free_y") +
+  labs(
+    title = "Q = ln(h) + b: Fitted Flow Models by Cap Type",
+    x = "Head Height (m)",
+    y = "Flow Rate (L/min)"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    strip.text = element_text(color = "black", face = "bold")  
+  )
+
+```
+```{r}
+model_types <- tibble(
+  cap_type = c("Cap", "Seal", "Vented", "Sanitary"),
+  model_type = c("log", "log", "log", "linear")
+)
+
+# STEP 2: Fit models according to type
+model_fits <- filtered_data %>%
+  inner_join(model_types, by = "cap_type") %>%
+  group_by(cap_type, model_type) %>%
+  nest() %>%
+  mutate(
+    model = map2(data, model_type, ~
+      if (.y == "log") lm(Q_Lmin ~ log(h_m), data = .x)
+      else lm(Q_Lmin ~ h_m, data = .x)
+    ),
+    label = map2_chr(model, model_type, ~ {
+      coefs <- coef(.x)
+      if (.y == "log") {
+        paste0("Q = ", round(coefs[2], 2), "*ln(h) + ", round(coefs[1], 2),
+               "\nAdj. R² = ", round(summary(.x)$adj.r.squared, 2))
+      } else {
+        paste0("Q = ", round(coefs[2], 2), "*h + ", round(coefs[1], 2),
+               "\nAdj. R² = ", round(summary(.x)$adj.r.squared, 2))
+      }
+    })
+  )
+
+# Predict
+fitted_lines_all <- model_fits %>%
+  mutate(
+    h_vals = map(data, ~ seq(min(.x$h_m), max(.x$h_m), length.out = 100)),
+    Q_vals = map2(h_vals, model, ~ predict(.y, newdata = tibble(h_m = .x)))
+  ) %>%
+  select(cap_type, h_vals, Q_vals) %>%
+  unnest(c(h_vals, Q_vals)) %>%
+  rename(h_m = h_vals, Q_Lmin = Q_vals)
+```
+```{r}
+cap_colors <- c(
+  "Cap" = "#CBC3E3",       
+  "Sanitary" = "#5E3C99", 
+  "Seal" = "#7CA37C",      
+  "Vented" = "darkgreen"     
+)
+
+# Plot model and equation for each cap
+fits_plot<-ggplot() +
+  geom_point(data = filtered_data,
+             aes(x = h_m, y = Q_Lmin, color = cap_type),
+             alpha = 0.5) +
+  geom_line(data = fitted_lines_all,
+            aes(x = h_m, y = Q_Lmin, color = cap_type),
+            size = 1.2) +
+  geom_text(data = model_fits,
+            aes(x = 0.01, y = Inf, label = label),
+            inherit.aes = FALSE,
+            hjust = 0, vjust = 1.2, size = 3.5) +
+  facet_wrap(~cap_type, scales = "free_y") +
+  scale_color_manual(values = cap_colors) +
+  labs(
+    x = "Head Height (m)",
+    y = "Flow Rate (L/min)",
+    color = "Cap Type"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black",size=10),
+    axis.ticks = element_line(color = "black"),
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold",size=12),  
+    strip.text = element_text(color = "black", face = "bold"),
+    legend.position = "none"
+  )
+fits_plot
+```
+
+```{r}
+# Set your manual y-axis upper limits and label positions
+facet_limits <- tibble(
+  cap_type = c("Cap", "Sanitary", "Seal", "Vented"),
+  y_max = c(60, 0.3, 15, 8),
+  y_label = c(55, 0.27, 14, 7)  
+)
+
+model_fits <- model_fits %>%
+  left_join(facet_limits, by = "cap_type")
+
+fits_plot <- ggplot() +
+  geom_point(data = filtered_data,
+             aes(x = h_m*100, y = Q_Lmin, color = cap_type),
+             alpha = 0.5) +
+  geom_line(data = fitted_lines_all,
+            aes(x = h_m*100, y = Q_Lmin, color = cap_type),
+            size = 1.2) +
+  geom_text(data = model_fits,
+            aes(x = 0.01, y = y_label, label = label),
+            inherit.aes = FALSE,
+            hjust = 0, size = 3.5) +
+  geom_blank(data = facet_limits,
+             aes(x = 0, y = y_max)) +  # Forces y-axis to respect max
+  facet_wrap(~cap_type, scales = "free_y") +
+  scale_color_manual(values = cap_colors) +
+  labs(
+    x = "h: Height of Water Above Covering (cm)",
+    y = "Q: Flow Rate (L/min)"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black", size = 10),
+    axis.ticks = element_line(color = "black"),
+    axis.title = element_text(color = "black", size = 10),  
+    plot.title = element_text(color = "black", face = "bold", size = 12),  
+    strip.text = element_text(color = "black", face = "bold"),
+    legend.position = "none"
+  )
+
+fits_plot
+```
+
+```{r}
+cutoffs <- tibble(
+  cap_type = c("Cap", "Sanitary", "Seal", "Vented"),
+  h_cutoff = c(0, 0.01, 0.01, 0.02)  
+)
+
+# Join and filter based on cap_type-specific cutoff
+filtered_data <- all_data %>%
+  filter(Q_Lmin > 0.009) %>%
+  inner_join(cutoffs, by = "cap_type") %>%
+  filter(h_m > h_cutoff)
+
+# Define updated time step durations in seconds
+trial_timesteps <- tibble(
+  trial = c("Sanitary2", "Sanitary3", "Cap1", "Cap2", "Cap3",
+            "Seal1", "Seal2", "Seal3", "Vented1", "Vented2", "Vented3"),
+  timestep_sec = c(900, 900, 20, 20, 20, 60, 60, 60, 120, 120, 120)
+)
+
+# Count number of observations per trial and compute durations
+duration_by_obs <- filtered_data %>%
+  group_by(trial) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop"
+  ) %>%
+  left_join(trial_timesteps, by = "trial") %>%
+  mutate(
+    duration_minutes = (n_obs * timestep_sec) / 60
+  )
+
+print(duration_by_obs)
+
+avg_by_type <- filtered_data %>%
+  group_by(cap_type) %>%
+  summarise(
+    avg_Q_Lmin = mean(Q_Lmin),
+    sd_Q = sd(Q_Lmin),
+    n = n(),
+    se_Q = sd_Q / sqrt(n),
+    ci_95 = qt(0.975, df = n - 1) * se_Q,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    lower_CI = avg_Q_Lmin - ci_95,
+    upper_CI = avg_Q_Lmin + ci_95
+  )
+
+
+avg_flow_trial <- filtered_data %>%
+  group_by(trial) %>%
+    summarise(
+    avg_Q_Lmin = mean(Q_Lmin),
+    sd_Q = sd(Q_Lmin),
+    n = n(),
+    se_Q = sd_Q / sqrt(n),
+    ci_95 = qt(0.975, df = n - 1) * se_Q,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    lower_CI = avg_Q_Lmin - ci_95,
+    upper_CI = avg_Q_Lmin + ci_95
+  )
+```
+
+
+```{r}
+# Calculate Cd for each cap
+calibrate_CdA <- function(df) {
+  g <- 9.81
+
+  df <- df %>%
+    filter(Q_Lmin > 0, h_m > 0)
+
+  model <- lm(Q_Lmin ~ sqrt(h_m), data = df)
+
+  k <- coef(model)[2]  
+  CdA <- k / sqrt(2 * g)
+
+  tibble(
+    intercept = coef(model)[1],
+    slope_k = k,
+    CdA = CdA,
+    adj_r_squared = summary(model)$adj.r.squared
+  )
+}
+
+model_calibrated <- all_data %>%
+  filter(Q_Lmin > 0, h_m > 0.005) %>%
+  group_by(cap_type) %>%
+  group_modify(~ calibrate_CdA(.x))
+
+print(model_calibrated)
+
+
+pred_lines <- model_calibrated %>%
+  rowwise() %>%
+  mutate(
+    h_vals = list(seq(0.005, 0.25, by = 0.001)),
+    Q_vals = list(slope_k * sqrt(h_vals) + intercept)
+  ) %>%
+  unnest(c(h_vals, Q_vals)) %>%
+  rename(h_m = h_vals, Q_Lmin = Q_vals)
+
+```
+
+#Comparison tables
+```{r}
+# Step 0: Define target heights and tolerance (meters)
+target_h <- c(0.05,0.1,0.2,0.25)
+tolerance <- 0.012
+
+#log models
+log_models <- all_data %>%
+  filter(Q_Lmin > 0.009, h_m > 0.05) %>%
+  group_by(cap_type) %>%
+  nest() %>%
+  mutate(model = map(data, ~ lm(Q_Lmin ~ log(h_m), data = .x)))
+
+# orifice models
+orifice_models <- all_data %>%
+  filter(Q_Lmin > 0.009, h_m > 0.05) %>%
+  group_by(cap_type) %>%
+  nest() %>%
+  mutate(model = map(data, ~ lm(Q_Lmin ~ sqrt(h_m), data = .x)))
+
+#Predict for both models
+predict_model_values <- function(models, h_vals, transform_fn, model_name) {
+  map_dfr(models$cap_type, function(ct) {
+    mod <- models$model[[which(models$cap_type == ct)]]
+    h_df <- tibble(h_m = h_vals)
+    Q_pred <- predict(mod, newdata = h_df)
+    tibble(
+      cap_type = ct,
+      h_m = h_vals,
+      Q_pred = Q_pred,
+      model = model_name
+    )
+  })
+}
+
+pred_log <- predict_model_values(log_models, target_h, log, "log")
+pred_orifice <- predict_model_values(orifice_models, target_h, sqrt, "orifice")
+
+# Step 4: Get observed values within tolerance window
+obs_at_heights <- map_dfr(target_h, function(h_val) {
+  all_data %>%
+    filter(abs(h_m - h_val) <= tolerance) %>%
+    group_by(cap_type) %>%
+    summarise(
+      h_m = h_val,
+      Q_obs = mean(Q_Lmin, na.rm = TRUE),
+      .groups = "drop"
+    )
+})
+
+# Step 5: Combine and calculate % errors
+combined_preds <- bind_rows(pred_log, pred_orifice) %>%
+  left_join(obs_at_heights, by = c("cap_type", "h_m")) %>%
+  mutate(
+    error = Q_pred - Q_obs,
+    percent_error = 100 * error / Q_obs
+  )
+
+avg_preds <- combined_preds %>%
+  group_by(cap_type, model) %>%
+  summarise(
+    Q_pred = mean(Q_pred, na.rm = TRUE),
+    Q_obs = mean(Q_obs, na.rm = TRUE),
+    percent_error = mean(abs(percent_error), na.rm = TRUE), 
+    summary_row = TRUE,
+    .groups = "drop"
+  )
+
+
+combined_preds <- combined_preds %>%
+  mutate(summary_row = FALSE)
+
+# Bind together
+final_table <- bind_rows(combined_preds, avg_preds) %>%
+  arrange(cap_type, summary_row, h_m)
+
+final_table_display <- final_table %>%
+  mutate(h_label = ifelse(summary_row, "Overall", round(h_m, 4))) %>%
+  select(cap_type, h_label, model, Q_pred, Q_obs, percent_error)
+
+
+x<-avg_flow_trial$avg_Q_Lmin
+y<-c(76,76,76,.36,.36,5.1,5.1,5.1,0.9,.9,.9)
+cor.test(x,y,method="spearman")
+
+```
+
+```{r}
+overall_error <- combined_preds %>%
+  group_by(cap_type, model) %>%
+  summarise(
+    Q_pred = mean(Q_pred, na.rm = TRUE),
+    Q_obs = mean(Q_obs, na.rm = TRUE),
+    percent_error = abs(Q_pred - Q_obs) / Q_obs * 100,
+    summary_row = TRUE,
+    .groups = "drop"
+  )
+
+```
+
+###Read in Helene data
+```{r}
+Helene_samples<-read_excel("C://Users//drewry.k//OneDrive - Northeastern University//Documents//Desktop//Helene//Sampling Data//DHHS Data//Hurricane Helene Samples ALL Counties.xlsx",sheet="FullData")
+
+samples_sf<-Helene_samples%>%filter(Long!="") %>% 
+  st_as_sf(coords = c("Long", "Lat"), crs = 4326)
+
+samples_sf<-samples_sf %>% filter(TC!=-99)
+
+samples_sf <- samples_sf %>%
+  arrange(Date) %>%  
+  group_by(geometry) %>%
+  slice(1) %>%
+  ungroup()
+```
+
+```{r}
+studyarea<-read_sf("C:\\Users\\drewry.k\\OneDrive - Northeastern University\\Documents\\Desktop\\Helene\\Helenemapping\\Disaster counties.shp")
+
+studyarea<-studyarea %>% st_transform(crs(samples_sf))
+samples_sf<-st_intersection(samples_sf,studyarea)
+```
+
+##Flooding time series and durations
+```{r}
+thresholds<-read.csv("Q thresholds.csv")
+q_15_order <- read.csv("Q_15_order_correct.csv")
+q_base_order <- read.csv("Q_base_order_correct.csv")
+q_base_mike <- read.csv("Q_base_mike_correct.csv")
+q_15_mike <- read.csv("Q_15_mike_correct.csv")
+
+q_15_order <- q_15_order %>%
+  mutate(time = ymd_hms(time),streamflow=streamflow*0.01)
+
+q_base_order <- q_base_order %>%
+  mutate(time = ymd_hms(time),streamflow=streamflow*0.01)
+
+q_15_mike <- q_15_mike %>%
+  mutate(time = ymd_hms(time),streamflow=streamflow*0.01)
+
+q_base_mike <- q_base_mike %>%
+  mutate(time = ymd_hms(time),streamflow=streamflow*0.01)
+
+q_base_order$time <- as.POSIXct(q_base_order$time)
+q_15_order$time   <- as.POSIXct(q_15_order$time)
+q_base_mike$time  <- as.POSIXct(q_base_mike$time)
+q_15_mike$time    <- as.POSIXct(q_15_mike$time)
+```
+
+
+```{r}
+thresholds_long <- thresholds %>%
+  pivot_longer(
+    cols = starts_with("Q_"),
+    names_to = "scenario",
+    values_to = "threshold"
+  )
+
+q_base_order <- q_base_order %>%
+  mutate(scenario = "Q_base_order") %>%
+  left_join(thresholds_long %>% select(ID, scenario, threshold), by = c("ID", "scenario")) %>%
+  mutate(flooded = .data$streamflow > .data$threshold)
+
+q_15_order <- q_15_order %>%
+  mutate(scenario = "Q_15_order") %>%
+  left_join(thresholds_long %>% select(ID, scenario, threshold), by = c("ID", "scenario")) %>%
+  mutate(flooded = .data$streamflow > .data$threshold)
+
+q_base_mike <- q_base_mike %>%
+  mutate(scenario = "Q_base_mike") %>%
+  left_join(thresholds_long %>% select(ID, scenario, threshold), by = c("ID", "scenario")) %>%
+  mutate(flooded = .data$streamflow > .data$threshold)
+
+q_15_mike <- q_15_mike %>%
+  mutate(scenario = "Q_15_mike") %>%
+  left_join(thresholds_long %>% select(ID, scenario, threshold), by = c("ID", "scenario")) %>%
+  mutate(flooded = .data$streamflow > .data$threshold)
+
+```
+
+```{r}
+flood_times_all <- bind_rows(
+  q_15_order, q_base_order, q_15_mike, q_base_mike
+) %>%
+  filter(flooded) %>%
+  select(ID, time, scenario)
+
+flood_summary <- bind_rows(
+  q_15_order, q_base_order, q_15_mike, q_base_mike
+) %>%
+  group_by(ID, scenario) %>%
+  summarise(
+    total_hours_flooded = sum(flooded, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# 15 comparison
+flooded_15_order <- q_15_order %>%
+  filter(flooded) %>%
+  select(ID, time) %>%
+  mutate(source = "Q_15_order")
+
+flooded_15_mike <- q_15_mike %>%
+  filter(flooded) %>%
+  select(ID, time) %>%
+  mutate(source = "Q_15_mike")
+
+# Base comparison
+flooded_base_order <- q_base_order %>%
+  filter(flooded) %>%
+  select(ID, time) %>%
+  mutate(source = "Q_base_order")
+
+flooded_base_mike <- q_base_mike %>%
+  filter(flooded) %>%
+  select(ID, time) %>%
+  mutate(source = "Q_base_mike")
+
+```
+
+```{r}
+comparison_15 <- full_join(
+  flooded_15_order, flooded_15_mike,
+  by = c("ID", "time"),
+  suffix = c("_order", "_mike")
+) %>%
+  mutate(
+    both_flooded = !is.na(source_order) & !is.na(source_mike),
+    only_order = !is.na(source_order) & is.na(source_mike),
+    only_mike = is.na(source_order) & !is.na(source_mike)
+  )
+
+# Summary counts
+comparison_15 %>%
+  summarise(
+    both = sum(both_flooded),
+    only_order = sum(only_order),
+    only_mike = sum(only_mike)
+  )
+
+```
+
+```{r}
+comparison_base <- full_join(
+  flooded_base_order, flooded_base_mike,
+  by = c("ID", "time"),
+  suffix = c("_order", "_mike")
+) %>%
+  mutate(
+    both_flooded = !is.na(source_order) & !is.na(source_mike),
+    only_order = !is.na(source_order) & is.na(source_mike),
+    only_mike = is.na(source_order) & !is.na(source_mike)
+  )
+
+# Summary counts
+comparison_base %>%
+  summarise(
+    both = sum(both_flooded),
+    only_order = sum(only_order),
+    only_mike = sum(only_mike)
+  )
+
+```
+
+```{r}
+comparison_15 %>%
+  filter(only_order | only_mike) %>%
+  arrange(time) %>%
+  head(10)
+```
+
+##Using Q 15 order
+```{r}
+final_q_15 <- q_15_order %>%
+  filter(!is.na(threshold)) %>%
+  mutate(flooded = streamflow > threshold)
+
+final_q_base <- q_base_order %>%
+  filter(!is.na(threshold)) %>%
+  mutate(flooded = streamflow > threshold)
+
+final_q_15 <- bind_rows(
+  q_15_order %>% mutate(source = "order"),
+  q_15_mike %>% mutate(source = "mike")
+) %>%
+  filter(!is.na(threshold)) %>%
+  mutate(flooded = streamflow > threshold)
+
+flooded_time_counts <- final_q_15 %>%
+  filter(flooded) %>%
+  group_by(time) %>%
+  summarise(n_wells_flooded = n(), .groups = "drop")
+```
+
+
+```{r}
+flood_summary %>%
+  group_by(scenario) %>%
+  summarise(
+    mean_hours = mean(total_hours_flooded, na.rm = TRUE),
+    median_hours = median(total_hours_flooded, na.rm = TRUE),
+    max_hours = max(total_hours_flooded, na.rm = TRUE),
+    n_flooded = n()
+  )
+
+ggplot(flood_summary, aes(x = total_hours_flooded, fill = scenario)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Flood Duration by Scenario", x = "Total Hours Flooded", y = "Density") +
+  theme_minimal()+
+    theme(
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color="black"),
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")  
+  )
+
+```
+
+
+```{r}
+final_q_15 <- bind_rows(
+  q_15_order %>% mutate(source = "order"),
+  q_15_mike %>% mutate(source = "mike")
+) %>%
+  filter(!is.na(threshold)) %>%
+  mutate(flooded = streamflow > threshold) %>%
+  distinct(ID, time, .keep_all = TRUE)  
+
+flooded_times_per_well <- final_q_15 %>%
+  filter(flooded) %>%
+  distinct(ID, time) %>%
+  count(ID, name = "hoursflooded")
+
+samples_sf <- samples_sf %>%
+  left_join(flooded_times_per_well, by = "ID")
+```
+
+##Simulated volumes df
+```{r}
+valid_ids <- unique(final_q_15$ID)
+flooded_samples <- samples_sf %>%
+  filter(ID %in% valid_ids)
+```
+
+
+```{r}
+wilcox.test(hoursflooded ~ EC, data = flooded_samples)
+
+ggplot(flooded_samples, aes(x = as.factor(EC), y = hoursflooded)) +
+  geom_boxplot() +
+  labs(x = "E. coli Presence (0 = No, 1 = Yes)", y = "Flood Duration (hours)")
+
+samples_sf<-samples_sf %>% filter(hoursflooded!=0)
+samples_sf$flood_group <- ifelse(samples_sf$hoursflooded < 24, "<24", "≥24")
+
+table_ec <- table(samples_sf$EC, samples_sf$flood_group)
+
+# Chi-squared test
+chisq.test(table_ec)
+fisher.test(table_ec)
+```
+
+```{r}
+ggplot(samples_sf, aes(x = hoursflooded)) +
+  stat_ecdf(geom = "step", color = "darkblue") +
+  labs(
+    title = "Cumulative Distribution Function of Hours Flooded (All Values)",
+    x = "Hours Flooded",
+    y = "CDF"
+  ) +
+  theme_minimal() +
+  theme(
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color="black"),
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")  
+  )
+```
+
+```{r}
+ggplot(subset(samples_sf, hoursflooded > 0), aes(x = hoursflooded)) +
+  geom_histogram(aes(y = ..count.. / sum(..count..)), binwidth = 12, fill = "#a1b3d7", color = "black") +
+  scale_y_continuous(labels = scales::percent,limits=c(0,.3)) +
+  scale_x_continuous()+
+  labs(
+    title = "Histogram of Hours Flooded (Values > 0)",
+    x = "Hours Flooded",
+    y = "Percentage of Samples"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color="black"),
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")  
+  )
+
+```
+
+
+```{r}
+# Get the filtered data
+filtered_data <- subset(samples_sf, hoursflooded > 0)
+
+# Calculate the bin edges
+min_val <- floor(min(filtered_data$hoursflooded) / 12) * 12
+max_val <- ceiling(max(filtered_data$hoursflooded) / 12) * 12
+bin_breaks <- seq(min_val, max_val, by = 12)
+
+ggplot(filtered_data, aes(x = hoursflooded)) +
+  geom_histogram(
+    aes(y = ..count..),
+    binwidth = 12,
+    fill = "#a1b3d7",
+    color = "black",
+    boundary = 0
+  ) +
+  scale_y_continuous(limits=c(0,15)) +
+  scale_x_continuous(
+    breaks = bin_breaks,
+    limits = c(0,200),
+    expand=c(0,0)
+  ) +
+  labs(
+    title = "Histogram of Hours Flooded (Values > 0)",
+    x = "Hours Flooded",
+    y = "Number of Samples"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title = element_text(color = "black"),
+    plot.title = element_text(color = "black", face = "bold"),
+    legend.text = element_text(color = "black"),
+    legend.title = element_text(color = "black")
+  )
+
+```
+
+```{r}
+hist_data <- ggplot2::ggplot_build(
+  ggplot(filtered_data, aes(x = hoursflooded)) +
+    geom_histogram(binwidth = 12, boundary = 0)
+)$data[[1]]
+
+# Add percentage column
+hist_data$percent <- hist_data$count / sum(hist_data$count)
+
+peak_time <- flooded_time_counts$time[which.max(flooded_time_counts$n_wells_flooded)]
+pre_peak <- flooded_time_counts %>%
+  filter(time < peak_time)
+
+post_peak <- flooded_time_counts %>%
+  filter(time > peak_time)
+library(Kendall)
+
+pre_mk <- MannKendall(pre_peak$n_wells_flooded)
+post_mk <- MannKendall(post_peak$n_wells_flooded)
+print(pre_mk)
+print(post_mk)
+
+```
+
+
+##Different scenarios for hourly
+```{r}
+flooded_samples <- samples_sf %>% filter(hoursflooded > 0)
+n_flooded <- nrow(flooded_samples)  
+
+#Hourly volumes
+calculate_hourly_cumulative_volume <- function(distribution, flow_map, durations, min_mode = FALSE) {
+  set.seed(456)
+  n <- length(durations)
+
+  cap_types <- sample(names(distribution), size = n, replace = TRUE, prob = distribution)
+  flow_rates <- sapply(cap_types, function(cap) flow_map[cap])  # L/min
+
+  df <- data.frame(
+    Well = 1:n,
+    Cap = cap_types,
+    FlowRate = flow_rates,
+    Duration = durations
+  )
+
+  hourly_volume_df <- lapply(1:max(durations), function(h) {
+    active_df <- df %>% filter(Duration >= h)
+    volume <- active_df$FlowRate * 60  # Volume added this hour
+    if (min_mode) volume <- pmin(volume, well_volume_liters)
+
+    data.frame(
+      Hour = h,
+      HourlyVolume = sum(volume),
+      Mean = mean(volume),
+      SD = sd(volume)
+    )
+  }) %>% bind_rows()
+  hourly_volume_df <- hourly_volume_df %>%
+    mutate(Cumulative = cumsum(HourlyVolume))
+
+  return(hourly_volume_df)
+}
+```
+
+##Run simulations
+```{r}
+well_volume_liters <- 180
+avg_flows <- c(Cap = 28.5, Seal = 7.5, Vented = 0.5, Sanitary = 0.02)  
+cap_scenarios <- list(
+  ExpertOpinion = c(Cap = 0.01, Seal = 0.59, Vented = 0.39, Sanitary = 0.01),
+  NoVents = c(Cap = 0.20, Seal = 0.70, Vented = 0.00, Sanitary = 0.10),
+  AllVented = c(Cap = 0.00, Seal = 0.00, Vented = 1.00, Sanitary = 0.00),
+  AllCaps = c(Cap = 1.00, Seal = 0.00, Vented = 0.00, Sanitary = 0.00),
+  AllSanitary = c(Cap = 0.00, Seal = 0.10, Vented = 0.00, Sanitary = 1.00)
+)
+
+scenario_labels <- c(
+  ExpertOpinion = "Assumed Distribution from Experts",
+  NoVents = "No Vents (0%)",
+  AllVented = "All Vented (100%)",
+  AllCaps = "All Basic Caps (Worst Case)",
+  HalfSanitary = "50% Sanitary Seals",
+  Minimum = "Minimum Infiltration (250L/well)"
+)
+
+
+hourly_scenario_results <- bind_rows(
+  lapply(names(cap_scenarios), function(name) {
+    result <- calculate_hourly_cumulative_volume(
+      distribution = cap_scenarios[[name]],
+      flow_map = avg_flows,
+      durations = flooded_samples$hoursflooded  
+    )
+    result$Scenario <- name
+    result
+  }),
+  {
+    result <- calculate_hourly_cumulative_volume(
+      distribution = cap_scenarios[["ExpertOpinion"]],
+      flow_map = avg_flows,
+      durations = flooded_samples$hoursflooded,
+      min_mode = TRUE
+    )
+    result$Scenario <- "Minimum"
+    result
+  }
+)
+
+
+```
+
+```{r}
+# Total flooded wells
+n_flooded <- nrow(flooded_samples)
+calculate_total_volume <- function(distribution, flow_map, durations, min_mode = FALSE) {
+  set.seed(456)
+  
+  sampled_caps <- sample(names(distribution), size = n_flooded, replace = TRUE, prob = distribution)
+  
+  if (min_mode) {
+    return(sum(rep(250, n_flooded)))  
+  }
+  flow_rates <- sapply(sampled_caps, function(cap) flow_map[cap])
+
+  volumes <- flow_rates * 60 * durations
+  
+  sum(volumes) 
+}
+
+# Run for all scenarios
+results <- data.frame(
+  Scenario = names(cap_scenarios),
+  MinVolume_L = NA,
+  MaxVolume_L = NA
+)
+
+for (i in seq_along(cap_scenarios)) {
+  dist <- cap_scenarios[[i]]
+  
+  vol_min <- calculate_total_volume(dist, avg_flows, flooded_samples$hoursflooded, min_mode = TRUE)
+  vol_max <- calculate_total_volume(dist, avg_flows, flooded_samples$hoursflooded, min_mode = FALSE)
+  
+  results$MinVolume_L[i] <- vol_min
+  results$MaxVolume_L[i] <- vol_max
+}
+
+# Convert to million liters for readability
+tested_results <- results %>%
+  mutate(
+    MinVolume_ML = round(MinVolume_L / 1e6, 2),
+    MaxVolume_ML = round(MaxVolume_L / 1e6, 2)
+  )
+
+tested_results
+
+```
+
+```{r}
+custom_colors <- c(
+  "Assumed Distribution from Experts"="slateblue4",
+  "No Vents (0%)"="#88CCEE",
+  "All Vented (100%)"="#117733",
+  "All Basic Caps (Worst Case)"="#DDCC77",
+  "50% Sanitary Seals"="#44AA99",
+  "Minimum Infiltration (250L/well)"="black"
+)
+
+# Order legend
+hourly_scenario_results$ScenarioLabel <- factor(
+  scenario_labels[hourly_scenario_results$Scenario],
+  levels = c(
+    "Assumed Distribution from Experts",
+    "No Vents (0%)",
+    "All Vented (100%)",
+    "All Basic Caps (Worst Case)",
+    "50% Sanitary Seals",
+    "Minimum Infiltration (250L/well)"
+  )
+)
+```
+
+##Plot
+```{r}
+error_bar_df <- hourly_scenario_results %>%
+  filter(Hour %% 2 == 0 & Scenario != "Minimum") %>%
+  mutate(
+    SE = SD / sqrt(n_flooded),
+    ymin = pmax(Cumulative - SD, 0),
+    ymax = Cumulative + SD
+  )
+
+ggplot(hourly_scenario_results, aes(x = Hour, y = Cumulative,
+                             color = ScenarioLabel, fill = ScenarioLabel)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(
+    data = error_bar_df,
+    aes(ymin = ymin, ymax = ymax),
+    alpha = 0.6
+  ) +
+  scale_color_manual(values = custom_colors) +
+  scale_fill_manual(values = custom_colors) +
+  scale_x_continuous(limits = c(0, 80), expand = c(0, 0)) +
+  labs(
+    x = "Flood Duration (hr)",
+    y = "Cumulative Volume (L)",
+    color = "Scenario",
+    fill = "Scenario"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(color = "black", size = 11),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 9)
+  )
+
+```
+```{r}
+hist_data <- filtered_data %>%
+  filter(hoursflooded > 0) %>%
+  mutate(HourBin = floor(hoursflooded / 6) * 6) %>%
+  group_by(HourBin) %>%
+  summarise(count = n(), .groups = "drop")
+
+hist_scale <- 12e6 / max(hist_data$count)  
+
+hist_data <- hist_data %>%
+  mutate(scaled_y = count * hist_scale)
+
+ggplot() +
+  geom_col(
+    data = hist_data,
+    aes(x = HourBin, y = scaled_y),
+    fill = "black", alpha = 0.5,
+    width = 6
+  ) +
+
+  scale_color_manual(values = custom_colors) +
+  scale_fill_manual(values = custom_colors) +
+  scale_x_continuous(limits = c(0, 80), expand = c(0, 0)) +
+  scale_y_continuous(
+    name = "Cumulative Volume (L)",
+    sec.axis = sec_axis(
+  ~ . / hist_scale,
+  name = "Number of Wells Flooded",
+  breaks = seq(0, max(hist_data$count), by = 25)
+))+
+  geom_line(data = hourly_scenario_results, aes(x = Hour, y = Cumulative, color = ScenarioLabel), size = 1.2) +
+  geom_ribbon(data = error_bar_df,
+              aes(x = Hour, ymin = ymin, ymax = ymax, fill = ScenarioLabel),
+              alpha = 0.2) +
+
+  labs(
+    x = "Flood Duration (hr)",
+    color = "Scenario",
+    fill = "Scenario"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(color = "black", size = 11),
+    axis.title.y.right = element_text(margin = margin(l = 10)),
+    legend.position = "bottom",
+  )
+
+
+```
+
+##Get duration
+```{r}
+valid_ids <- unique(flooded_samples$ID)
+
+final_q_15 <- final_q_15 %>%
+  filter(ID %in% valid_ids)
+
+
+hours_flooded_actual <- final_q_15 %>%
+  filter(flooded) %>%
+  count(ID, name = "actual_hours_flooded")
+
+scenario_volumes_df <- bind_rows(
+  lapply(names(cap_scenarios), function(scenario_name) {
+    
+    fractions <- cap_scenarios[[scenario_name]]
+    
+    df <- flooded_samples %>%
+      select(ID, hoursflooded) %>%
+      mutate(
+        Scenario = scenario_name,
+        flow_L_per_min = sum(
+          unlist(fractions) * unlist(avg_flows[names(fractions)])
+        ),
+        Volume_L_max = flow_L_per_min * 60 * hoursflooded,
+        Volume_L_min = well_volume_liters
+      )
+  })
+) %>%
+  left_join(hours_flooded_actual, by = "ID") %>%
+  mutate(volume_per_actual_hour = Volume_L_max / actual_hours_flooded)
+
+scenario_volumes_df %>% 
+  group_by(Scenario) %>%
+  summarise(total_Volume_L_max = sum(Volume_L_max))
+```
+
+
+```{r}
+flooded_times <- final_q_15 %>%
+  filter(flooded) %>%
+  select(ID, time) %>%
+  distinct()
+
+flooded_counts <- flooded_times %>%
+  count(ID, name = "n_flooded_hours")
+
+
+flooded_counts <- final_q_15 %>%
+  filter(flooded) %>%
+  group_by(ID) %>%
+  summarise(
+    n_flooded_hours = n(),
+    start_time = min(time),
+    end_time = max(time),
+    .groups = "drop"
+  )
+
+
+flooded_times_all <- flooded_times %>%
+  crossing(Scenario = unique(scenario_volumes_df$Scenario)) %>%
+  left_join(flooded_counts, by = "ID")
+
+
+flooded_with_volumes <- flooded_times_all %>%
+  left_join(scenario_volumes_df %>% select(ID, Scenario, Volume_L_max), 
+            by = c("ID", "Scenario")) %>%
+  filter(!is.na(Volume_L_max)) %>%
+  mutate(volume_per_hour = Volume_L_max / n_flooded_hours)
+
+volume_by_time <- flooded_with_volumes %>%
+  group_by(time, Scenario) %>%
+  summarise(hourly_volume = sum(volume_per_hour, na.rm = TRUE), .groups = "drop")
+
+
+volume_by_time <- volume_by_time %>%
+  group_by(Scenario) %>%
+  arrange(time) %>%
+  mutate(
+    cumulative_volume = cumsum(hourly_volume),
+    percent_hourly = hourly_volume / sum(hourly_volume),
+    percent_cumulative = cumsum(percent_hourly)
+  ) %>%
+  ungroup()
+
+
+volume_by_time %>%
+  group_by(Scenario) %>%
+  summarise(total_volume = sum(hourly_volume))
+
+```
+
+```{r}
+wells_per_time <- final_q_15 %>%
+  filter(flooded) %>%
+  group_by(time) %>%
+  summarise(`# Wells` = n_distinct(ID), .groups = "drop")
+
+summary_table <- volume_by_time %>%
+  left_join(wells_per_time, by = "time") %>%
+  select(time, `# Wells`, Scenario, cumulative_volume, hourly_volume, percent_hourly, percent_cumulative) %>%
+  pivot_wider(
+    names_from = Scenario,
+    values_from = c(cumulative_volume, hourly_volume, percent_hourly, percent_cumulative)
+  ) %>%
+  arrange(time)
+```
+
+
+##Compare with precipitation
+```{r}
+hourly_precip<-read.csv("GPM_IMERG_V07_Hourly_Helene2024_Precip_By_Catchment.csv") %>% dplyr::select(c(1,9:15))
+catchments<-st_read("Helene_precip.shp") %>% dplyr::select("NC_Catch_M")
+
+hourly_precip <- hourly_precip %>%
+  mutate(time = as.POSIXct(time, format = "%Y-%m-%d %H:%M", tz = "UTC"))
+```
+
+```{r}
+samples_sf <- st_transform(samples_sf, st_crs(catchments))
+
+wells_to_catchments <- st_join(samples_sf, catchments) %>%
+  st_drop_geometry() %>%
+  select(ID, NC_Catch_M)
+
+# Add catchment info to flooded_times_all
+flooded_times_all <- flooded_times_all %>%
+  left_join(wells_to_catchments, by = "ID")
+
+wells_with_precip <- flooded_times_all %>%
+  left_join(hourly_precip, by = c("NC_Catch_M", "time"))
+
+flooded_times <- flooded_times %>% arrange(time)
+
+###early flooded wells
+early_flooders<-wells_with_precip %>% filter(ID %in% c(80,2360,263,621))
+
+# Step 2: At each time, calculate cumulative unique well_ids seen so far
+cumulative_flooded <- flooded_times %>%
+  group_by(time) %>%
+  summarise(new_wells = list(unique(ID)), .groups = "drop") %>%
+  mutate(cumulative_wells = accumulate(new_wells, ~union(.x, .y)),
+         total_flooded = sapply(cumulative_wells, length))
+
+# Get total rainfall across all catchments per hour
+
+hourly_total_precip <- hourly_precip %>%
+  group_by(time) %>%
+  summarise(total_precip_mm = max(mean, na.rm = TRUE), .groups = "drop")
+
+summary_table <- summary_table %>%
+  mutate(time = as.POSIXct(time, format = "%Y-%m-%d %H:%M", tz = "UTC")) %>%
+  left_join(hourly_total_precip, by = "time")
+
+
+summary_table <- summary_table %>% select(-matches("geometry|.geo"), everything())
+
+start_time <- as.POSIXct("2024-09-23 00:00:00", tz = "UTC")
+end_time   <- as.POSIXct("2024-10-03 23:00:00", tz = "UTC")
+
+all_hours <- data.frame(time = seq(from = start_time, to = end_time, by = "1 hour"))
+
+summary_table_full <- all_hours %>%
+  left_join(summary_table, by = "time")
+
+# Fill cumulative columns forward
+summary_table_full <- summary_table_full %>%
+  mutate(across(contains("hourly_"), ~replace_na(., 0))) %>%
+  mutate(across(contains("percent_hourly"), ~replace_na(., 0))) %>%
+  mutate(`# Wells` = replace_na(`# Wells`, 0)) %>%
+  fill(contains("cumulative_"), contains("percent_cumulative"), .direction = "down")
+
+# Set cumulative values in first row to 0
+summary_table_full[1, grepl("cumulative_", names(summary_table_full))] <- 0
+summary_table_full[1, grepl("percent_cumulative", names(summary_table_full))] <- 0
+
+
+# Write to file
+write.csv(summary_table_full, "flood_volume_summary.csv")
+
+```
+
+```{r}
+set.seed(456)
+
+n <- nrow(flooded_samples)
+durations <- flooded_samples$hoursflooded
+assigned_caps <- sample(
+  names(cap_scenarios$ExpertOpinion),
+  size = n,
+  replace = TRUE,
+  prob = cap_scenarios$ExpertOpinion
+)
+
+flow_rates <- sapply(assigned_caps, function(cap) avg_flows[cap])
+volumes <- flow_rates * 60 * durations  # L
+
+# Per-well dataframe
+well_infiltration <- flooded_samples %>%
+  st_drop_geometry() %>%
+  mutate(
+    Cap = assigned_caps,
+    FlowRate_Lmin = flow_rates,
+    Volume_L = volumes
+  )
+```
+
+```{r}
+ggplot(well_infiltration, aes(x = hoursflooded, y = Volume_L, color = Cap)) +
+  geom_point(size = 2.5, alpha = 0.8, shape = 18) +  
+  scale_y_log10(
+    labels = scales::comma,
+    limits = c(1000, 1e6)
+  ) +
+  xlim(0,200)+
+  scale_color_manual(values = cap_colors) +
+  labs(
+    x = "Flood Duration (hr)",
+    y = "Volume Infiltrated per Well (L)",
+    color = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.box = "horizontal",
+    legend.text = element_text(size = 11)
+  )
+
+```
+
+
+##Scale up to EPA estimates
+```{r}
+#Get probability distribution
+flooded_samples<-samples_sf %>% filter(hoursflooded>0)
+
+valid_hours <- flooded_samples$hoursflooded[flooded_samples$hoursflooded > 0]
+
+hour_counts <- table(floor(valid_hours))
+hour_probs <- hour_counts / sum(hour_counts)  
+
+set.seed(123)  
+simulated_hours <- sample(
+  as.integer(names(hour_probs)),     
+  size = 13800,
+  replace = TRUE,
+  prob = hour_probs
+)
+
+set.seed(456)
+flow_rates <- sample(
+  c(47.90,0.13,12.46,4.53),
+  size = 13800,
+  replace = TRUE,
+  prob = c(0.15, 0.05, 0.6, 0.2)
+)
+
+
+#Total volumes
+volumes <- flow_rates * 60 * simulated_hours
+sum(volumes)
+cat("Total Volume:", round(sum(volumes)/10^6, 2), "million Liters\n")
+
+minimum<-13800*250
+minimum
+```
+##Scale up to EPA
+```{r}
+n_samples <- 13800
+
+# Simulate flood distribution
+set.seed(123)
+simulated_hours <- sample(
+  as.integer(names(hour_probs)), size = n_samples, replace = TRUE, prob = hour_probs
+)
+
+# Function to calculate volumes
+calculate_volumes <- function(distribution, flow_map, hours, min_mode = FALSE, max_mode = FALSE) {
+  set.seed(456)
+  sampled_caps <- sample(names(distribution), size = n_samples, replace = TRUE, prob = distribution)
+
+  if (min_mode) {
+    return(sum(rep(well_volume_liters, n_samples))) 
+  }
+
+  flow_rates <- numeric(n_samples)
+  for (cap in names(flow_map)) {
+    indices <- which(sampled_caps == cap)
+    flow_rates[indices] <- flow_map[cap]
+  }
+
+  volumes <- flow_rates * 60 * hours  
+  sum(volumes)
+}
+
+# Run all scenarios
+results <- data.frame(
+  Condition = names(cap_scenarios),
+  MinVolume = NA,
+  MaxVolume = NA
+)
+
+baseline_max <- NA
+
+for (i in seq_along(cap_scenarios)) {
+  dist <- cap_scenarios[[i]]
+
+  vol_min <- calculate_volumes(dist, avg_flows, simulated_hours, min_mode = TRUE)
+  vol_max <- calculate_volumes(dist, avg_flows, simulated_hours, max_mode = TRUE)
+
+  results$MinVolume[i] <- round(vol_min / 1e6, 2)
+  results$MaxVolume[i] <- round(vol_max / 1e6, 2)
+}
+results
+
+```
+##Vary
+```{r}
+simulate_replicates <- function(distribution, flow_map, hours, reps = 1000) {
+  volumes <- numeric(reps)
+  for (r in 1:reps) {
+    sampled_caps <- sample(names(distribution), size = length(hours), replace = TRUE, prob = distribution)
+    flow_rates <- numeric(length(hours))
+    for (cap in names(flow_map)) {
+      indices <- which(sampled_caps == cap)
+      flow_rates[indices] <- flow_map[cap]
+    }
+    volume <- sum(flow_rates * 60 * hours)
+    volumes[r] <- volume / 1e6  # Convert to ML
+  }
+  return(volumes)
+}
+
+volume_stats <- data.frame(
+  Condition = character(),
+  Mean = numeric(),
+  Lower = numeric(),
+  Upper = numeric()
+)
+
+for (condition in names(cap_scenarios)) {
+  dist <- cap_scenarios[[condition]]
+  vol_reps <- simulate_replicates(dist, avg_flows, simulated_hours, reps = 1000)
+  volume_stats <- rbind(volume_stats, data.frame(
+    Condition = condition,
+    Mean = round(mean(vol_reps), 2),
+    Lower = round(quantile(vol_reps, 0.025), 2),
+    Upper = round(quantile(vol_reps, 0.975), 2)
+  ))
+}
+
+ggplot(volume_stats, aes(x = Condition, y = Mean)) +
+  geom_col(fill = "#6baed6") +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.2) +
+  ylab("Estimated Infiltration Volume (ML)") +
+  xlab("Intervention Scenario") +
+  theme_minimal()
+
+```
+
+
+```{r}
+siteNumbers <- c(
+"351709082434101",
+"351808082374302",
+"352012081154301",
+"352012081154302",
+"352315082484401",
+"354133082042201",
+"354133082042203",
+"354302081433201",
+"354302081433202",
+"354616081085101",
+"354616081085102",
+"355031081243202",
+"355031081243203",
+"361646081430401",
+"351808082374302",
+"354133082042203")
+```
+
+```{r}
+get_site_medians <- function(site) {
+  message(paste("Getting daily medians for site:", site))
+  tryCatch({
+    df <- readNWISstat(
+      siteNumbers = site,
+      parameterCd = "72019",
+      statReportType = "daily",
+      statType = "median"
+    )
+    df$SiteID <- site
+    df
+  }, error = function(e) {
+    warning(paste("Failed for site:", site))
+    return(NULL)
+  })
+}
+
+# Loop through all sites and combine into one dataframe
+USGS_daily_medians_all <- purrr::map_dfr(siteNumbers, get_site_medians)
+
+# Clean it up
+USGS_daily_medians_all_clean <- USGS_daily_medians_all %>%
+  select(SiteID, month_nu, day_nu, p50_va, begin_yr) %>%
+  rename(Month = month_nu, Day = day_nu, Max_Depth = p50_va) %>%
+  mutate(Max_Depth=Max_Depth*.3048) %>% 
+  arrange(SiteID, Month, Day)
+
+baselineyr<-USGS_daily_medians_all_clean %>% group_by(SiteID) %>% summarize(begin_yr=first(begin_yr))
+```
+
+
+##Monitoring Well Processing
+```{r}
+USGS_MW<-suppressWarnings(read_excel("C:\\Users\\drewry.k\\OneDrive - Northeastern University\\Documents\\Desktop\\Infiltration\\USGS_MW_Data.xlsx",sheet="AllUSGS"))
+USGS_MW$SiteID<-as.character(USGS_MW$SiteID)
+
+NCDEQ_MW<-read_excel("C:\\Users\\drewry.k\\OneDrive - Northeastern University\\Documents\\Desktop\\Infiltration\\USGS_MW_Data.xlsx",sheet="AllNCDEQ")
+
+MW_info<-read_excel("C:\\Users\\drewry.k\\OneDrive - Northeastern University\\Documents\\Desktop\\Infiltration\\USGS_MW_Data.xlsx",sheet="MetaData")
+```
+
+```{r}
+# Function to process each dataframe
+process_data <- function(df, site_col) {
+  df <- df %>%
+    mutate(
+      Date = as.Date(Date, format="%m/%d/%Y"),  
+      Year = case_when(
+        Date >= as.Date("2023-03-26") & Date <= as.Date("2024-03-26") ~ "2023",
+        Date > as.Date("2024-03-26") & Date <= as.Date("2025-02-26") ~ "2024",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    filter(!is.na(Year))  
+  
+  # Get max depth per Site and Date
+  df_max <- df %>%
+    group_by(.data[[site_col]], Date, Year) %>%
+    summarise(Max_Depth = max(Depth*.3048, na.rm = TRUE), .groups = 'drop')
+
+  # Get median depth per Site and Year
+  df_median <- df_max %>%
+    group_by(.data[[site_col]], Year) %>%
+    summarise(Median_Depth = median(Max_Depth*.3048, na.rm = TRUE), .groups = 'drop')
+
+  # Merge the max and median datasets
+  df_final <- df_max %>%
+    left_join(df_median, by = c(site_col, "Year"))
+
+  return(df_final)
+}
+
+# Process both datasets
+USGS_results <- process_data(USGS_MW, "SiteID") %>% filter(Year==2024) %>% dplyr::select(c(1:4))
+NCDEQ_results <- process_data(NCDEQ_MW, "WellID")
+```
+
+```{r}
+USGS_results<-USGS_results %>% mutate(Day_of_Year=yday(Date))
+USGS_medians <- USGS_daily_medians_all_clean %>%
+  mutate(
+    Date = make_date(year = 2000, month = Month, day = Day),
+    Day_of_Year = yday(Date),
+    Year="baseline"
+  ) %>%
+  select(-c(Month,Day,begin_yr))
+
+NCDEQ_results <- NCDEQ_results %>%
+  mutate(Day_of_Year = yday(Date)) %>% rename(SiteID=WellID)
+
+USGS_results<-rbind(USGS_results,USGS_medians)
+ 
+
+ggplot(USGS_results, aes(x = Day_of_Year, y = Max_Depth, color = as.factor(SiteID), group = interaction(SiteID, Year))) +
+  geom_line(aes(linetype = Year == 2024)) + 
+  geom_line(data = NCDEQ_results, aes(x = Day_of_Year, y = Max_Depth, color = as.factor(SiteID))) +
+  scale_linetype_manual(values = c("TRUE" = "solid", "FALSE" = "dashed")) +  
+  scale_y_reverse() +  
+  scale_x_continuous(
+    breaks = c(1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335), 
+    labels = month.abb
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Max Daily Depth Over Time (Aligned by Day of Year)",
+    x = "Month",
+    y = "Depth (m)",
+    color = "Site ID",
+    linetype = "Year Type"
+  ) +
+  scale_color_brewer(palette = "Paired") +
+  theme(
+    panel.grid = element_blank(), 
+    axis.ticks = element_line(color = "black"),  
+    axis.text = element_text(color = "black"),  
+    axis.title = element_text(color = "black"), 
+    plot.title = element_text(color = "black", size = 16, face = "bold"), 
+    legend.title = element_text(color = "black"),
+    legend.text = element_text(color = "black"),   
+    
+    
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+```
+
+
+```{r}
+##Day of years of interest, 269:279 for 9/26/10/6, 258:289 for 9/15 to 10/15, 228:320 for 8/15-11/15
+USGS_2024 <- USGS_results %>%
+  filter(Year == 2024, Day_of_Year %in% 228:344) %>%
+  select(Day_of_Year, Max_Depth,SiteID)
+
+NCDEQ_2024 <- NCDEQ_results %>%
+  filter(Year == 2024, Day_of_Year %in% 228:344) %>%
+  select(Day_of_Year, Max_Depth,SiteID,Date)
+
+storm_2024<-bind_rows(USGS_2024,NCDEQ_2024)
+
+USGS_baseline <- USGS_results %>%
+  filter(Year != 2024, Day_of_Year %in% 228:344) %>%
+  select(Day_of_Year, Max_Depth,SiteID)
+
+NCDEQ_baseline <- NCDEQ_results %>%
+  filter(Year != 2024, Day_of_Year %in% 228:344) %>%
+  select(Day_of_Year, Max_Depth,SiteID,Date)
+
+storm_baseline<-bind_rows(USGS_baseline,NCDEQ_baseline)
+
+time_storm <- storm_2024$Day_of_Year
+depth_storm <- storm_2024$Max_Depth
+
+time_typical <- storm_baseline$Day_of_Year
+depth_typical <- storm_baseline$Max_Depth
+
+area_storm <- trapz(time_storm, depth_storm)
+area_typical <- trapz(time_typical, depth_typical)
+
+area_diff <- area_storm - area_typical
+
+cat("Difference in area under the curve:", area_diff, "m^2")
+```
+
+```{r}
+storm_2024$Month_Day <- format(as.Date(storm_2024$Day_of_Year, origin = "2023-12-31"), "%m/%d")
+storm_baseline$Month_Day<-format(as.Date(storm_baseline$Day_of_Year, origin = "2023-12-31"), "%m/%d")
+
+storm_baseline_avg <- storm_baseline %>%
+  group_by(Month_Day, SiteID) %>%
+  summarise(Max_Depth = mean(Max_Depth, na.rm = TRUE))
+
+storm_baseline_avg$Year <- "baseline"
+storm_2024$Year <- "2024"
+```
+
+```{r}
+c25 <- c(
+  "dodgerblue2", "#E31A1C",
+  "green4",
+  "#6A3D9A", 
+  "#FF7F00", 
+  "black", "gold1",
+  "skyblue2", "#FB9A99", 
+  "palegreen2",
+  "#CAB2D6", 
+  "#FDBF6F",
+  "gray70", "khaki2",
+  "maroon", "orchid1", "deeppink1", "blue1", "steelblue4",
+  "darkturquoise", "green1", "yellow4", "yellow3",
+  "darkorange4", "brown"
+)
+
+
+stormplot <- ggplot() +
+  geom_line(data = storm_baseline_avg, 
+            aes(x = Month_Day, y = Max_Depth, 
+                color = as.factor(SiteID), 
+                linetype = Year, 
+                group = interaction(SiteID, Year)), 
+            linewidth = 1) +
+  geom_line(data = storm_2024, 
+            aes(x = Month_Day, y = Max_Depth, 
+                color = as.factor(SiteID), 
+                linetype = Year, 
+                group = interaction(SiteID, Year)), 
+            linewidth = 1) +
+  scale_linetype_manual(values = c("baseline" = "dashed", "2024" = "solid")) + 
+  scale_y_reverse() +
+  scale_color_manual(values = c25) +  
+  theme_minimal() +
+  labs(
+    title = "Max Daily Depth Over Time",
+    x = "Month/Day",
+    y = "Depth (m)",
+    color = "Site ID",
+    linetype = "Year"
+  ) +
+  theme(
+    panel.grid = element_blank(), 
+    axis.ticks = element_line(color = "black"),  
+    axis.text = element_text(color = "black"),  
+    axis.title = element_text(color = "black"), 
+    plot.title = element_text(color = "black", size = 16, face = "bold"), 
+    legend.title = element_text(color = "black"),
+    legend.text = element_text(color = "black"),  
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+stormplot
+
+```
+
+```{r}
+# Max depth, DOY
+max_depth_change <- storm_2024 %>%
+  group_by(SiteID) %>%
+  summarise(
+    Max_Depth_storm = min(Max_Depth, na.rm = TRUE),
+    Max_Depth_day_storm = Day_of_Year[which.min(Max_Depth)], 
+    .groups = "drop"
+  )
+
+# Now, merge with the baseline data to get the corresponding baseline depth on that day
+max_depth_change <- max_depth_change %>%
+  left_join(storm_baseline, by = c("SiteID", "Max_Depth_day_storm" = "Day_of_Year")) %>%
+  mutate(
+    Max_Depth_baseline = Max_Depth,  
+    Max_Change_in_Head = Max_Depth_baseline - Max_Depth_storm
+  ) %>%
+  select(SiteID, Max_Depth_storm, Max_Depth_baseline, Max_Change_in_Head)
+```
+
+
+```{r}
+well_info <- MW_info %>%
+  mutate(
+    radius = Diameter/24,
+    cross_section_area = pi * (radius^2),
+  )
+
+well_info<-well_info %>% dplyr::select(c(1:13,22,23))
+
+calculate_area <- function(df) {
+  df %>%
+    group_by(SiteID) %>%
+    summarise(
+      Area = trapz(Day_of_Year, Max_Depth),
+      .groups = "drop"
+    )
+}
+
+# Calculate area for each well in both years
+area_2024 <- calculate_area(storm_2024) %>% rename(Area_2024 = Area)
+area_baseline <- calculate_area(storm_baseline) %>% rename(Area_baseline = Area)
+
+area_diff_per_well <- area_2024 %>%
+  left_join(area_baseline, by = "SiteID") %>%
+  left_join(max_depth_change, by = "SiteID") %>%
+  mutate(Delta_Area = Area_2024 - Area_baseline)
+
+well_info <- area_diff_per_well %>%
+  left_join(well_info, by = "SiteID") %>%
+  mutate(Volume_Change = Max_Change_in_Head * (cross_section_area/10.764))
+```
+
+
+```{r}
+flood_bounds<-st_read("Helene flood extents.shp")
+well_info<-well_info %>% st_as_sf(coords = c("Long", "Lat"), crs = 4326)
+well_info<-well_info %>% mutate(Longitude = st_coordinates(.)[,1],
+         Latitude = st_coordinates(.)[,2])
+well_info<-well_info %>% st_transform(crs(flood_bounds))
+##add flood duration to monitoring well data
+well_info_buffer<-st_buffer(well_info,100)
+
+well_info$flooded <- as.integer(lengths(st_intersects(well_info_buffer, flood_bounds)) > 0)
+
+
+precip_grid<-terra::rast("C:/Users/drewry.k/Downloads/GPM_IMERG_FinalRun_TotalPrecip_County.tif") 
+precip_grid<-project(precip_grid, "EPSG:3857")
+
+well_info_proj <- st_transform(well_info, crs(precip_grid))
+well_vect <- vect(well_info_proj)                           
+
+# Extract precipitation values
+precip_values <- extract(precip_grid, well_vect)
+well_info_proj$precip_mm <- precip_values[,2] 
+well_info_proj<-well_info_proj %>% dplyr::select(c("SiteID","precip_mm"))
+```
+
+```{r}
+flooded_MW<-well_info %>% filter(flooded==1)
+```
+
+```{r}
+storm_2024 <- storm_2024 %>%
+  left_join(well_info %>% st_drop_geometry() %>% select(SiteID, flooded), by = "SiteID") %>%
+  mutate(Flood_Status = ifelse(flooded> 0, "Flooded", "Nonflooded"))
+storm_2024<-storm_2024 %>% filter(Flood_Status=="Flooded"|Flood_Status=="Nonflooded")
+
+storm_baseline_avg<-storm_baseline_avg %>% rename(baseline_Max_Depth=Max_Depth)
+storm_2024_all<-left_join(storm_2024,storm_baseline_avg,by=c("SiteID","Month_Day"))
+
+storm_2024 <- storm_2024_all %>%
+  mutate(dh = (Max_Depth - baseline_Max_Depth) * -1)
+
+storm_2024 <- storm_2024 %>%
+  mutate(pct_dh = (dh / baseline_Max_Depth) * 100)
+
+storm_summary <- storm_2024 %>%
+  group_by(Month_Day, Flood_Status) %>%
+  summarise(
+    mean_depth = mean(Max_Depth, na.rm = TRUE),
+    lower = quantile(Max_Depth, probs = 0.025, na.rm = TRUE),
+    upper = quantile(Max_Depth, probs = 0.975, na.rm = TRUE),
+    mean_dh=mean(dh,na.rm=TRUE),
+    lower_dh=quantile(dh,probs=0.025,na.rm=TRUE),
+    upper_dh=quantile(dh,probs=0.975,na.rm=TRUE),
+    mean_pct_dh = mean(pct_dh, na.rm = TRUE),
+    lower_pct_dh = quantile(pct_dh, 0.025, na.rm = TRUE),
+    upper_pct_dh= quantile(pct_dh,0.975,na.rm=TRUE),
+    .groups = "drop"
+  )
+
+storm_summary<-storm_summary %>% na.omit()
+```
+
+```{r}
+storm_2024 <- storm_2024 %>%
+  mutate(Month_Day = as.Date(Day_of_Year, origin = paste0(Year.x, "-01-01")))
+
+stormplot <- ggplot() +
+  geom_line(data = storm_2024, 
+            aes(x = Month_Day, y = baseline_Max_Depth, color = as.factor(SiteID)), 
+            linetype = "dashed", 
+            linewidth = 1.2) +
+  geom_line(data = storm_2024, 
+            aes(x = Month_Day, y = Max_Depth, color = as.factor(SiteID)), 
+            linetype = "solid", 
+            linewidth = 1) +
+
+  facet_wrap(~Flood_Status) +
+  scale_y_reverse() +
+  scale_color_manual(values = c25) +
+  theme_minimal() +
+  labs(
+    title = "Max Daily Depth Over Time",
+    x = "Month/Day",
+    y = "Depth (m)",
+    color = "Site ID"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black",size=14),
+    axis.title = element_text(color = "black",size=14),
+    plot.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.title = element_text(color = "black"),
+    legend.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+stormplot
+```
+
+```{r}
+storm_summary <- storm_summary %>%
+  mutate(Month_Day = as.Date(paste0("2024-", Month_Day), format = "%Y-%m/%d")) 
+
+storm<-ggplot(storm_summary, aes(x = Month_Day, y = mean_dh)) +
+  geom_line(color = "black", size = 1) +
+  geom_ribbon(aes(ymin = lower_dh, ymax = upper_dh), fill = "steelblue", alpha = 0.4) +
+  geom_hline(yintercept=0,color="black",linetype="dashed")+
+  ylim(-1,5)+
+  scale_x_date(date_labels = "%m/%d", date_breaks = "5 days") +
+  facet_wrap(~Flood_Status,labeller = labeller(Flood_Status = c(
+  "Flooded" = "Monitoring Wells in Flooded Areas",
+  "Nonflooded" = "Monitoring Wells in Non-Flooded Areas"))) +
+  theme_minimal() +
+  labs(
+    title = "Mean Max Daily Depth with 95% CI by Flood Status",
+    x = "Date",
+    y = "Change in Head Relative to Baseline (m)"
+  )+
+    theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black",size=14),
+    plot.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.title = element_text(color = "black",size=14),
+    legend.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+storm
+```
+
+```{r}
+storm_summary_avg <- storm_summary %>%
+  group_by(Month_Day, Flood_Status) %>%
+  summarise(across(c(mean_dh, lower_dh, upper_dh, mean_pct_dh, lower_pct_dh, upper_pct_dh), mean, na.rm = TRUE), .groups = "drop")
+
+diff_summary <- storm_summary_avg %>%
+  pivot_wider(
+    names_from = Flood_Status,
+    values_from = c(mean_dh, lower_dh, upper_dh, mean_pct_dh, lower_pct_dh, upper_pct_dh)
+  ) %>%
+  mutate(
+    mean_dh = mean_dh_Flooded - mean_dh_Nonflooded,
+    mean_pct_dh = mean_pct_dh_Flooded - mean_pct_dh_Nonflooded,
+
+    se_dh_Flooded = (upper_dh_Flooded - lower_dh_Flooded) / (2 * 1.96),
+    se_dh_Nonflooded = (upper_dh_Nonflooded - lower_dh_Nonflooded) / (2 * 1.96),
+    se_pct_Flooded = (upper_pct_dh_Flooded - lower_pct_dh_Flooded) / (2 * 1.96),
+    se_pct_Nonflooded = (upper_pct_dh_Nonflooded - lower_pct_dh_Nonflooded) / (2 * 1.96),
+
+    se_dh_diff = sqrt(se_dh_Flooded^2 + se_dh_Nonflooded^2),
+    se_pct_diff = sqrt(se_pct_Flooded^2 + se_pct_Nonflooded^2),
+
+    lower_dh = mean_dh - 1.96 * se_dh_diff,
+    upper_dh = mean_dh + 1.96 * se_dh_diff,
+    lower_pct_dh = mean_pct_dh - 1.96 * se_pct_diff,
+    upper_pct_dh = mean_pct_dh + 1.96 * se_pct_diff,
+
+    Flood_Status = "Difference"
+  ) %>%
+  select(Month_Day, Flood_Status, mean_dh, lower_dh, upper_dh, 
+         mean_pct_dh, lower_pct_dh, upper_pct_dh)
+
+storm_summary_combined <- bind_rows(storm_summary, diff_summary)
+```
+
+
+```{r}
+plot_pct <- ggplot(storm_summary_combined, aes(x = Month_Day)) +
+  geom_line(aes(y = mean_pct_dh, color = "Mean % Change in Water Level"), size = 1) +
+  
+  # CI ribbon for Flooded and Nonflooded
+  geom_ribbon(
+    data = filter(storm_summary_combined, Flood_Status %in% c("Flooded", "Nonflooded")),
+    aes(ymin = lower_pct_dh, ymax = upper_pct_dh, fill = "95% CI"),
+    alpha = 0.4
+  ) +
+  
+  # CI ribbon for Difference
+  geom_ribbon(
+    data = filter(storm_summary_combined, Flood_Status == "Difference"),
+    aes(ymin = lower_pct_dh, ymax = upper_pct_dh, fill = "95% CI"),
+    alpha = 0.4
+  ) +
+
+  geom_hline(aes(yintercept = 0, linetype = "Baseline Level"), color = "black") +
+  ylim(-50, 100) +  # adjust as needed based on your data
+  scale_x_date(date_labels = "%m/%d", date_breaks = "8 days") +
+  facet_wrap(~Flood_Status, labeller = labeller(Flood_Status = c(
+    "Flooded" = "A. Wells in Flooded Areas",
+    "Nonflooded" = "B. Wells in Non-Flooded Areas",
+    "Difference" = "C. Difference (Flooded - Non-Flooded)"
+  ))) +
+  theme_minimal() +
+  labs(
+    title = "Percent Change in Water Level Relative to Baseline",
+    x = "Date",
+    y = "Change in Head Relative to Baseline (%)",
+    color = "",
+    fill = "",
+    linetype = ""
+  ) +
+  scale_color_manual(values = c("Mean % Change in Water Level" = "black")) +
+  scale_fill_manual(values = c("95% CI" = "steelblue")) +
+  scale_linetype_manual(values = c("Baseline Level" = "dashed")) +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black", size = 8),
+    axis.title = element_text(color = "black", size = 16),
+    plot.title = element_text(color = "black", size = 18, face = "bold"),
+    strip.text = element_text(size = 16, face = "bold", color = "black", hjust = 0),
+    legend.title = element_blank(),
+    legend.text = element_text(color = "black", size = 14),
+    legend.position = "bottom",
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+plot_pct
+
+```
+
+```{r}
+plot <- ggplot(storm_summary_combined, aes(x = Month_Day)) +
+  geom_line(aes(y = mean_dh, color = "Mean Water Level Change"), size = 1) +
+  geom_ribbon(
+    data = filter(storm_summary_combined, Flood_Status %in% c("Flooded", "Nonflooded")),
+    aes(ymin = lower_dh, ymax = upper_dh, fill = "95% CI of Mean Water Level Change"),
+    alpha = 0.4
+  ) +
+  geom_ribbon(
+    data = filter(storm_summary_combined, Flood_Status == "Difference"),
+    aes(ymin = lower_dh, ymax = upper_dh, fill = "95% CI of Mean Water Level Change"),
+    alpha = 0.4
+  ) +
+
+  geom_hline(aes(yintercept = 0, linetype = "Baseline Water Level Change"), color = "black") +
+  ylim(-2, 6) +
+  scale_x_date(date_labels = "%m/%d", date_breaks = "14 days") +
+  facet_wrap(~Flood_Status, labeller = labeller(Flood_Status = c(
+    "Flooded" = "A. Wells in Flooded Areas",
+    "Nonflooded" = "B. Wells in Non-Flooded Areas",
+    "Difference" = "C. Difference (Flooded - Non-Flooded)"
+  ))) +
+  theme_minimal() +
+  labs(
+    title = "Mean Max Daily Depth with 95% CI by Flood Status",
+    x = "Date",
+    y = "Change in Head Relative to Baseline (m)",
+    color = "",
+    fill = "",
+    linetype = ""
+  ) +
+  scale_color_manual(values = c("Mean Water Level Change" = "black")) +
+  scale_fill_manual(values = c("95% CI of Mean Water Level Change" = "steelblue")) +
+  scale_linetype_manual(values = c("Baseline Water Level Change" = "dashed")) +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(color = "black", size = 16),
+    plot.title = element_text(color = "black", size = 18, face = "bold"),
+    strip.text = element_text(size = 16, face = "bold", color = "black", hjust = 0),
+    legend.title = element_blank(),
+    legend.text = element_text(color = "black", size = 14),
+    legend.position = "bottom",
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+plot
+```
+
+```{r}
+# Dates
+start_date <- as.Date("2024-09-15")
+end_date <- as.Date("2024-10-15")
+
+storm_window <- storm_summary_combined %>%
+  filter(Month_Day >= start_date, Month_Day <= end_date)
+
+# Absolute change in meters for Flooded
+abs_change_meters <- storm_summary_combined %>%
+  filter(Flood_Status == "Flooded",
+         Month_Day >= start_date,
+         Month_Day <= end_date) %>%
+  summarise(mean_dh = mean(mean_dh, na.rm = TRUE)) %>%
+  pull(mean_dh)
+
+# Absolute change in meters for Nonflooded
+abs_change_nonflooded <- storm_summary_combined %>%
+  filter(Flood_Status == "Nonflooded",
+         Month_Day >= start_date,
+         Month_Day <= end_date) %>%
+  summarise(mean_dh = mean(mean_dh, na.rm = TRUE)) %>%
+  pull(mean_dh)
+
+
+# % change from baseline for Flooded
+pct_change_flooded <- storm_summary_combined %>%
+  filter(Flood_Status == "Flooded",
+         Month_Day >= start_date,
+         Month_Day <= end_date) %>%
+  summarise(mean_pct = mean(mean_pct_dh, na.rm = TRUE)) %>%
+  pull(mean_pct)
+
+# % change from baseline for Nonflooded
+pct_change_nonflooded <- storm_summary_combined %>%
+  filter(Flood_Status == "Nonflooded",
+         Month_Day >= start_date,
+         Month_Day <= end_date) %>%
+  summarise(mean_pct = mean(mean_pct_dh, na.rm = TRUE)) %>%
+  pull(mean_pct)
+
+# Difference in % change (Flooded - Nonflooded)
+diff_values <- storm_summary_combined %>%
+  filter(Flood_Status == "Difference",
+         Month_Day >= start_date,
+         Month_Day <= end_date) %>%
+  pull(mean_pct_dh)
+
+mean_diff <- mean(diff_values, na.rm = TRUE)
+se_diff <- sd(diff_values, na.rm = TRUE) / sqrt(length(diff_values))
+lower_ci <- mean_diff - 1.96 * se_diff
+upper_ci <- mean_diff + 1.96 * se_diff
+
+# Attributable percent + uncertainty
+flooded_vals <- storm_summary_combined %>%
+  filter(Flood_Status == "Flooded",
+         Month_Day >= start_date,
+         Month_Day <= end_date) %>%
+  pull(mean_pct_dh)
+
+se_flooded <- sd(flooded_vals, na.rm = TRUE) / sqrt(length(flooded_vals))
+
+prop_se <- (mean_diff / pct_change_flooded) * sqrt(
+  (se_diff / mean_diff)^2 + (se_flooded / pct_change_flooded)^2
+)
+
+lower_prop <- (mean_diff / pct_change_flooded) - 1.96 * prop_se
+upper_prop <- (mean_diff / pct_change_flooded) + 1.96 * prop_se
+
+# REPORT
+cat("Mean absolute change (Flooded wells):", round(abs_change_meters, 2), "meters\n")
+cat("Mean absolute change (Nonflooded wells):", round(abs_change_nonflooded, 2), "meters\n")
+cat("Mean % change from baseline (Flooded wells):", round(pct_change_flooded, 1), "%\n")
+cat("Mean % change from baseline (Nonlooded wells):", round(pct_change_nonflooded, 1), "%\n")
+cat("Difference in % change (Flooded - Nonflooded):", round(mean_diff, 1), "%\n")
+cat("95% CI:", round(lower_ci, 1), "% to", round(upper_ci, 1), "%\n")
+cat("Attributable percent of flooded signal:", round(mean_diff / pct_change_flooded * 100, 1), "%\n")
+cat("95% CI:", round(lower_prop * 100, 1), "% to", round(upper_prop * 100, 1), "%\n")
+```
+```{r}
+# Assuming storm_summary_by_well is already created like this:
+storm_summary_by_well <- storm_2024 %>%
+  filter(Month_Day >= start_date, Month_Day <= end_date) %>%
+  group_by(SiteID, Flood_Status) %>%
+  summarise(mean_abs_change = mean(dh, na.rm = TRUE), .groups = "drop")
+
+# Now reuse your code exactly:
+flooded_abs <- storm_summary_by_well %>%
+  filter(Flood_Status == "Flooded")
+
+nonflooded_abs <- storm_summary_by_well %>%
+  filter(Flood_Status == "Nonflooded")
+
+# Report means and ranges
+mean_flooded_abs <- mean(flooded_abs$mean_abs_change, na.rm = TRUE)
+range_flooded_abs <- range(flooded_abs$mean_abs_change, na.rm = TRUE)
+
+mean_nonflooded_abs <- mean(nonflooded_abs$mean_abs_change, na.rm = TRUE)
+range_nonflooded_abs <- range(nonflooded_abs$mean_abs_change, na.rm = TRUE)
+
+# Output
+cat("\n---\n")
+cat("Flooded wells:\n")
+cat("Mean absolute change:", round(mean_flooded_abs, 2), "m\n")
+cat("Range of individual wells:", round(range_flooded_abs[1], 2), "m to", round(range_flooded_abs[2], 2), "m\n")
+
+cat("\nNonflooded wells:\n")
+cat("Mean absolute change:", round(mean_nonflooded_abs, 2), "m\n")
+cat("Range of individual wells:", round(range_nonflooded_abs[1], 2), "m to", round(range_nonflooded_abs[2], 2), "m\n")
+
+```
+
+```{r}
+# Flooded wells: mean, SE, CI
+flooded_mean <- mean(flooded_abs$mean_abs_change, na.rm = TRUE)
+flooded_se <- sd(flooded_abs$mean_abs_change, na.rm = TRUE) / sqrt(nrow(flooded_abs))
+flooded_ci <- c(flooded_mean - 1.96 * flooded_se, flooded_mean + 1.96 * flooded_se)
+
+# Nonflooded wells: mean, SE, CI
+nonflooded_mean <- mean(nonflooded_abs$mean_abs_change, na.rm = TRUE)
+nonflooded_se <- sd(nonflooded_abs$mean_abs_change, na.rm = TRUE) / sqrt(nrow(nonflooded_abs))
+nonflooded_ci <- c(nonflooded_mean - 1.96 * nonflooded_se, nonflooded_mean + 1.96 * nonflooded_se)
+
+# Output
+cat("\n---\n")
+cat("Flooded wells:\n")
+cat("Mean absolute change:", round(flooded_mean, 2), "m\n")
+cat("95% CI:", round(flooded_ci[1], 2), "m to", round(flooded_ci[2], 2), "m\n")
+cat("Range of individual wells:", round(min(flooded_abs$mean_abs_change), 2), "m to", round(max(flooded_abs$mean_abs_change), 2), "m\n")
+
+cat("\nNonflooded wells:\n")
+cat("Mean absolute change:", round(nonflooded_mean, 2), "m\n")
+cat("95% CI:", round(nonflooded_ci[1], 2), "m to", round(nonflooded_ci[2], 2), "m\n")
+cat("Range of individual wells:", round(min(nonflooded_abs$mean_abs_change), 2), "m to", round(max(nonflooded_abs$mean_abs_change), 2), "m\n")
+
+```
+
+```{r}
+# Define time window
+start_date <- as.Date("2024-09-15")
+end_date <- as.Date("2024-10-15")
+
+# Get mean % changes for each group
+pct_summary <- storm_summary_combined %>%
+  filter(Flood_Status %in% c("Flooded", "Nonflooded"),
+         Month_Day >= start_date, Month_Day <= end_date) %>%
+  group_by(Flood_Status) %>%
+  summarise(
+    mean_pct = mean(mean_pct_dh, na.rm = TRUE),
+    se = sd(mean_pct_dh, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# Extract values
+pct_flooded <- pct_summary$mean_pct[pct_summary$Flood_Status == "Flooded"]
+pct_nonflooded <- pct_summary$mean_pct[pct_summary$Flood_Status == "Nonflooded"]
+se_flooded <- pct_summary$se[pct_summary$Flood_Status == "Flooded"]
+se_nonflooded <- pct_summary$se[pct_summary$Flood_Status == "Nonflooded"]
+
+# Difference and 95% CI
+mean_diff_pct <- pct_flooded - pct_nonflooded
+se_diff <- sqrt(se_flooded^2 + se_nonflooded^2)
+ci_diff <- c(mean_diff_pct - 1.96 * se_diff, mean_diff_pct + 1.96 * se_diff)
+
+# Attributable proportion of flooded signal
+flood_prop <- mean_diff_pct / pct_flooded
+# Error propagation for attributable percent
+se_prop <- flood_prop * sqrt(
+  (se_diff / mean_diff_pct)^2 + (se_flooded / pct_flooded)^2
+)
+ci_prop <- c(flood_prop - 1.96 * se_prop, flood_prop + 1.96 * se_prop)
+
+# REPORT
+cat("Mean % change from baseline (Flooded wells):", round(pct_flooded, 1), "%\n")
+cat("Mean % change from baseline (Nonflooded wells):", round(pct_nonflooded, 1), "%\n")
+cat("Difference in % change (Flooded - Nonflooded):", round(mean_diff_pct, 1), "%\n")
+cat("95% CI:", round(ci_diff[1], 1), "% to", round(ci_diff[2], 1), "%\n")
+cat("Attributable percent of flooded signal:", round(flood_prop * 100, 1), "%\n")
+cat("95% CI:", round(ci_prop[1] * 100, 1), "% to", round(ci_prop[2] * 100, 1), "%\n")
+
+# Filter by date and flood status
+pct_vals <- storm_summary_combined %>%
+  filter(Flood_Status %in% c("Flooded", "Nonflooded"),
+         Month_Day >= start_date,
+         Month_Day <= end_date)
+
+# Calculate mean, SE, CI for each group
+pct_summary <- pct_vals %>%
+  group_by(Flood_Status) %>%
+  summarise(
+    mean_pct = mean(mean_pct_dh, na.rm = TRUE),
+    se = sd(mean_pct_dh, na.rm = TRUE) / sqrt(n()),
+    lower_ci = mean_pct - 1.96 * se,
+    upper_ci = mean_pct + 1.96 * se,
+    .groups = "drop"
+  )
+
+# View results
+pct_summary
+
+```
+```{r}
+# Calculate mean % change per well
+storm_pct_change_by_well <- storm_2024 %>%
+  filter(Month_Day >= start_date, Month_Day <= end_date) %>%
+  group_by(SiteID) %>%
+  summarise(mean_pct_change = mean(pct_dh, na.rm = TRUE), .groups = "drop")
+
+# Combine flooded and nonflooded wells
+combined_abs <- bind_rows(flooded_abs, nonflooded_abs)
+
+# Select relevant well-level metadata (precip + status)
+summary_wells <- well_info_proj %>%
+  st_drop_geometry() %>%
+  select(SiteID, precip_mm) 
+
+# Join all parts into one summary table
+final_summary <- combined_abs %>%
+  left_join(summary_wells, by = "SiteID") %>%
+  left_join(storm_pct_change_by_well, by = "SiteID")
+
+shapiro.test(final_summary$precip_mm[final_summary$Flood_Status == "Flooded"])
+shapiro.test(final_summary$precip_mm[final_summary$Flood_Status == "Nonflooded"])
+wilcox.test(precip_mm ~ Flood_Status, data = final_summary)
+
+
+```
+
+```{r}
+baseline_date <- as.Date("2024-09-15")
+
+# Get 9/15 baseline values for mean_dh
+baseline_flooded_dh <- storm_window %>%
+  filter(Flood_Status == "Flooded", Month_Day == baseline_date) %>%
+  pull(mean_dh)
+
+baseline_nonflooded_dh <- storm_window %>%
+  filter(Flood_Status == "Nonflooded", Month_Day == baseline_date) %>%
+  pull(mean_dh)
+
+# Normalize in meters
+flooded_curve <- storm_window %>%
+  filter(Flood_Status == "Flooded") %>%
+  mutate(norm_dh = mean_dh - baseline_flooded_dh)
+
+nonflooded_curve <- storm_window %>%
+  filter(Flood_Status == "Nonflooded") %>%
+  mutate(norm_dh = mean_dh - baseline_nonflooded_dh)
+
+# Join for ribbon plotting
+library(data.table)
+ribbon_data <- inner_join(
+  flooded_curve %>% select(Month_Day, flooded = norm_dh),
+  nonflooded_curve %>% select(Month_Day, nonflooded = norm_dh),
+  by = "Month_Day"
+) %>%
+  mutate(
+    ymin = pmin(flooded, nonflooded),
+    ymax = pmax(flooded, nonflooded),
+    shade_flag = flooded > nonflooded,
+    run_id = rleid(shade_flag)
+  ) %>%
+  filter(shade_flag)
+
+```
+
+```{r}
+plot_diff_overlay <- ggplot() +
+  geom_ribbon(data = ribbon_data,
+              aes(x = Month_Day, ymin = ymin, ymax = ymax, group = run_id),
+              fill = "darkblue", alpha = 0.3) +
+
+  geom_line(data = flooded_curve, aes(x = Month_Day, y = norm_dh, linetype = "Flooded"), 
+            color = "darkblue", size = 1) +
+  geom_line(data = nonflooded_curve, aes(x = Month_Day, y = norm_dh, linetype = "Non-Flooded"), 
+            color = "black", size = 1) +
+
+  geom_hline(yintercept = 0, color = "black") +
+
+  scale_x_date(date_labels = "%m/%d", date_breaks = "2 days",
+               limits = as.Date(c("2024-09-15", "2024-10-15")),
+               expand=expansion(mult=c(0.01,0.01))) +
+  labs(
+    title = "Normalized Impact of Flooding on Groundwater Levels",
+    subtitle = "Daily change in head (meters), normalized to 0 on 9/15",
+    x = "Date",
+    y = "Normalized Change in Head (m)",
+    linetype = ""
+  ) +
+  scale_linetype_manual(values = c("Flooded" = "solid", "Non-Flooded" = "dashed")) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black", size = 14),
+    axis.title = element_text(color = "black", size = 16),
+    plot.title = element_text(color = "black", size = 18, face = "bold"),
+    plot.subtitle = element_text(color = "black", size = 14),
+    legend.position = "bottom",
+    legend.text = element_text(size = 13),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+plot_diff_overlay
+
+```
+
+
+```{r}
+# Create shading categories
+ribbon_data <- inner_join(
+  flooded_curve %>% select(Month_Day, flooded = norm_dh),
+  nonflooded_curve %>% select(Month_Day, nonflooded = norm_dh),
+  by = "Month_Day"
+) %>%
+  mutate(
+    ymin = pmin(flooded, nonflooded),
+    ymax = pmax(flooded, nonflooded),
+    shade_category = case_when(
+      flooded > nonflooded ~ "Flooded > Nonflooded",
+      nonflooded > flooded ~ "Nonflooded > Flooded",
+      flooded == nonflooded & flooded > 0 ~ "Equal & Positive",
+      TRUE ~ NA_character_
+    ),
+    run_id = rleid(shade_category)
+  ) %>%
+  filter(!is.na(shade_category))
+
+
+plot_diff_overlay <- ggplot() +
+  geom_ribbon(data = ribbon_data,
+              aes(x = Month_Day, ymin = ymin, ymax = ymax, fill = shade_category, group = run_id),
+              alpha = 0.3) +
+    
+  geom_ribbon(data = flooded_curve,
+              aes(x = Month_Day, ymin = 0, ymax = norm_dh),
+              fill = "lightgrey", alpha = 0.2) +
+
+  geom_ribbon(data = nonflooded_curve,
+              aes(x = Month_Day, ymin = 0, ymax = norm_dh),
+              fill = "darkgrey", alpha = 0.2) +
+
+
+  geom_line(data = flooded_curve, aes(x = Month_Day, y = norm_dh, linetype = "Flooded"), 
+            color = "darkblue", size = 1) +
+  geom_line(data = nonflooded_curve, aes(x = Month_Day, y = norm_dh, linetype = "Non-Flooded"), 
+            color = "black", size = 1) +
+
+  geom_hline(yintercept = 0, color = "black") +
+
+  scale_x_date(date_labels = "%m/%d", date_breaks = "2 days",
+               limits = as.Date(c("2024-09-15", "2024-10-15")),
+               expand = expansion(mult = c(0.01, 0.01))) +
+
+  scale_fill_manual(values = c(
+    "Flooded > Nonflooded" = "darkblue",
+    "Nonflooded > Flooded" = "darkgrey",
+    "Equal & Positive" = "darkgrey"
+  )) +
+
+  labs(
+    x = "Date",
+    y = "Normalized Change in Head (m)",
+    linetype = "",
+    fill = "Shading Condition"
+  ) +
+  scale_linetype_manual(values = c("Flooded" = "solid", "Non-Flooded" = "dashed")) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(color = "black", size = 10),
+    legend.position = "bottom",
+    legend.text = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+
+plot_diff_overlay
+
+```
+
+```{r}
+storm_summary$well_overtop_low_ft <- storm_summary$mean_dh * 0.036
+storm_summary$well_overtop_high_ft <- storm_summary$mean_dh * 0.335
+storm_summary$proportion_overtop <- (storm_summary$well_overtop_low_ft + storm_summary$well_overtop_high_ft) / 2 / storm_summary$mean_dh
+
+storm_summary$Date_Bin <- cut(storm_summary$Month_Day, breaks = "3 days")
+
+agg_summary <- storm_summary %>%
+  group_by(Date_Bin) %>%
+  summarise(
+    mean_overtop = mean((well_overtop_low_ft + well_overtop_high_ft) / 2),
+    mean_proportion_overtop = mean(proportion_overtop),  
+    low = mean(well_overtop_low_ft),
+    high = mean(well_overtop_high_ft)
+  )
+ggplot(agg_summary, aes(x = as.Date(Date_Bin))) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "firebrick", alpha = 0.3) +
+  geom_line(aes(y = mean_overtop), color = "firebrick", size = 1.2) +
+  labs(
+    title = "Smoothed Δh from Well Overtopping (3-Day Aggregates)",
+    x = "Date",
+    y = "Δh (m)"
+  ) +
+  theme_minimal()+
+  theme(
+    panel.grid = element_blank(),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    plot.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.title = element_text(color = "black"),
+    legend.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
+```
+
+```{r}
+storm_summary$Month_Day <- as.Date(storm_summary$Month_Day)
+storm_summary$midpoint <- (storm_summary$mean_pct_dh + storm_summary$mean_pct_dh) / 2
+storm_summary$Date_Label <- format(storm_summary$Month_Day, "%b %d")
+
+ggplot(storm_summary, aes(y = reorder(Date_Label, Month_Day), color = Flood_Status)) +
+  geom_errorbarh(
+    aes(xmin = mean_pct_dh, xmax = mean_pct_dh),
+    height = 0.3, alpha = 0.6
+  ) +
+  scale_color_manual(values = c("Flooded" = "blue", "Nonflooded" = "grey")) +
+  geom_point(aes(x = midpoint), size = 3) +
+  labs(
+    title = "Daily Range of Estimated Δh",
+    x = "Δh (ft)",
+    y = "Date"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"), 
+    axis.title = element_text(color = "black"),  
+    plot.title = element_text(color = "black", face = "bold"),  
+    legend.text = element_text(color = "black"),  
+    legend.title = element_text(color = "black")  
+  )
+```
+
+```{r}
+storm_summary <- storm_summary %>%
+  arrange(Month_Day) %>%
+  mutate(
+    group_id = (as.integer(Month_Day - min(Month_Day)) %/% 3) + 1
+  )
+
+storm_summary <- storm_summary %>%
+  arrange(Month_Day) %>%
+  mutate(
+    group_id = (as.integer(Month_Day - min(Month_Day)) %/% 3) + 1
+  ) %>%
+  group_by(group_id) %>%
+  mutate(
+    group_label = paste0("", format(min(Month_Day), "%b %d"))
+  ) %>%
+  ungroup()
+
+
+ggplot(storm_summary, aes(x = midpoint, y = reorder(group_label, -group_id), fill = Flood_Status)) +
+  geom_density_ridges(alpha = 0.6, scale = 1, rel_min_height = 0.01) +
+  scale_fill_manual(values = c("Flooded" = "blue", "Nonflooded" = "grey")) +
+  labs(
+    title = "Estimated Δh from Well Overtopping",
+    x = "Δh (%)",
+    y = "Date Range"
+  ) +
+  theme_minimal()+
+  theme(
+    panel.border = element_rect(color = "black", fill=NA,size = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title = element_text(color = "black"),
+    plot.title = element_text(color = "black", face = "bold"),
+    legend.text = element_text(color = "black"),
+    legend.title = element_text(color = "black")
+  )
+
+```
+
+```{r}
+total_head_change <- sum(well_info$Max_Change_in_Head, na.rm = TRUE)*mean_diff 
+```
+
+Stats tests :0
+```{r}
+library(lubridate)
+
+storm_window <- summary_table %>%
+  filter(time >= ymd_h("2024-09-25 00") & time <= ymd_h("2024-09-29 00"))
+
+cor.test(storm_window$total_precip_mm, storm_window$`# Wells`, method = "spearman")
+
+# Step 1: Remove rows with NA in either column
+ccf_data <- summary_table %>%
+  select(time, total_precip_mm, `# Wells`) %>%
+  filter(!is.na(total_precip_mm) & !is.na(`# Wells`))
+
+# Step 2: Run cross-correlation
+ccf(
+  x = ccf_data$total_precip_mm,
+  y = ccf_data$`# Wells`,
+  lag.max = 48,  # Try up to +/- 48 hours lag
+  main = "Cross-correlation: Rainfall vs. Flooded Wells"
+)
+
+```
+
+
+```{r}
+hourly_total_precip <- hourly_total_precip %>%
+  arrange(time) %>%
+  mutate(cumulative_precip_mm = cumsum(total_precip_mm))
+
+summary_table <- summary_table %>%
+  left_join(hourly_total_precip, by = "time")
+
+plot(summary_table$cumulative_precip_mm, summary_table$`# Wells`,
+     xlab = "Cumulative Precipitation (mm)",
+     ylab = "Number of Wells Flooded")
+
+cor.test(summary_table$total_precip_mm, summary_table$`# Wells`, method = "spearman")
+
+```
+
+
+##Overnight seal
+```{r}
+overnight_df<-overnight_seal
+overnight_df$time <- as.POSIXct(overnight_df$time)
+
+
+overnight_df <- overnight_df %>%
+  mutate(h_m = (waterheight - min(waterheight, na.rm = TRUE)) *0.0254)
+
+overnight_df <- overnight_df %>%
+  mutate(deltah = lag(h_m) - h_m) %>%
+  mutate(Q = (deltah * pi * 0.2857^2) / 10*60*1000) %>%
+  mutate(vmax = sqrt(2 * 9.81 * h_m))
+
+overnight_df <- overnight_df %>%
+  mutate(group_id = ceiling(row_number() / 90)) %>%
+  group_by(group_id) %>%
+  summarise(
+    time = mean(time, na.rm = TRUE),
+    waterheight = mean(waterheight, na.rm = TRUE),
+    h_m = mean(h_m, na.rm = TRUE),
+    deltah = mean(deltah, na.rm = TRUE),
+    Q = mean(Q, na.rm = TRUE),
+    vmax = mean(vmax, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+mean_secondary_Q <- mean(overnight_df$Q, na.rm = TRUE)
+
+plot(overnight_df$Q,overnight_df$hft)
+
+seal1_processed <- seal1_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+seal2_processed <- seal2_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+seal3_processed <- seal3_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+
+vented1_processed <- vented1_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+vented2_processed <- vented2_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+vented3_processed <- vented3_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+
+```
+
+#For overnight trial (sanitary), accounting for secondary infiltration versus primary 
+```{r}
+# Convert time
+overnight_df<-overnight
+overnight_df$time <- as.POSIXct(overnight_df$time)
+
+
+overnight_df <- overnight_df %>%
+  mutate(h_m = (waterheight - min(waterheight, na.rm = TRUE)) * .0254)
+
+overnight_df <- overnight_df %>%
+  mutate(deltah = lag(h_m) - h_m) %>%
+  mutate(Q = (deltah * pi * 0.2857^2) / 10*1000*60) %>%
+  mutate(vmax = sqrt(2 * 9.81 * h_m))
+
+overnight_df <- overnight_df %>%
+  mutate(group_id = ceiling(row_number() / 90)) %>%
+  group_by(group_id) %>%
+  summarise(
+    time = mean(time, na.rm = TRUE),
+    waterheight = mean(waterheight, na.rm = TRUE),
+    h_m = mean(h_m, na.rm = TRUE),
+    deltah = mean(deltah, na.rm = TRUE),
+    Q = mean(Q, na.rm = TRUE),
+    vmax = mean(vmax, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+mean_secondary_Q <- mean(overnight_df$Q, na.rm = TRUE)
+
+plot(overnight_df$Q,overnight_df$hft)
+
+sanitary1_processed <- sanitary1_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+sanitary2_processed <- sanitary2_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+
+sanitary3_processed <- sanitary3_processed %>%
+  mutate(
+    secondary_Q = mean_secondary_Q,
+    primary_Q = Q_Lmin - mean_secondary_Q
+  )
+```
+
+```{r}
+cap1_processed<-cap1_processed %>% mutate(secondary_Q=Q_Lmin,primary_Q=0)
+cap2_processed<-cap2_processed %>% mutate(secondary_Q=Q_Lmin,primary_Q=0)
+cap3_processed<-cap3_processed %>% mutate(secondary_Q=Q_Lmin,primary_Q=0)
+```
