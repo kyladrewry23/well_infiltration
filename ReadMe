@@ -1,4 +1,4 @@
-This repository contains code and files realted to a recent experimental study evaluating how different wellhead designs (e.g., vented vs. sealed caps) affect the potential for floodwater infiltration into private wells. 
+This repository contains code and files related to a recent experimental study evaluating how different wellhead designs (e.g., vented vs. sealed caps) affect the potential for floodwater entry into private wells, and the greater aquifer. 
 
 Using Hurricane Helene as a case study, we assessed how infrastructure contributes to short-term contamination risk and aquifer recharge, with implications for resilient groundwater management. 
 This project integrates laboratory experiments simulating floodwater inundation across common well covering types with modeled flood extents and groundwater data from monitoring wells affected by Hurricane Helene in North Carolina. We estimate contributions to post-storm changes in hydraulic head from overtopped wells, showing that well infrastructure results in non-trivial risks to the larger aquifer.
@@ -13,7 +13,6 @@ To run the code successfully:
 
 1. **Download the raster files** from the following shared folder (you may need to request access if you are outside our group).
  📁Flood Duration Maps – Download: https://bit.ly/flood_duration_maps
-
 
 2. Create a folder named: helene_flood_duration/
 
